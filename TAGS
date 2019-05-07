@@ -1,0 +1,23 @@
+
+./Setup.hs,15
+main main1,2
+
+./src/Numeric/MCMC/Diagnostics.hs,467
+module Numeric.MCMC.DiagnosticsNumeric.MCMC.Diagnostics11,12
+data ExpectationSummary ExpectationSummary21,22
+data ExpectationSummary a = ExpectationSummary ExpectationSummary21,22
+data ExpectationSummary a = ExpectationSummary { mean mean21,22
+data ExpectationSummary a = ExpectationSummary { mean :: a, confidence confidence21,22
+data ExpectationSummary a = ExpectationSummary { mean :: a, confidence :: (a, a), rHat rHat21,22
+summarize summarize30,31
+
+./src/Graphics/Vegalite/ParameterPlot.hs,549
+module Graphics.VegaLite.ParameterPlotGraphics.VegaLite.ParameterPlot2,3
+data ParameterDetails ParameterDetails32,33
+data ParameterDetails = ParameterDetails ParameterDetails32,33
+data ParameterDetails = ParameterDetails  { name name32,33
+data ParameterDetails = ParameterDetails  { name :: Text, value value32,33
+data ParameterDetails = ParameterDetails  { name :: Text, value :: Double, confidence confidence32,33
+parameterPlot parameterPlot40,41
+parameterPlotMany parameterPlotMany50,51
+parameterPlotFlex parameterPlotFlex60,61
