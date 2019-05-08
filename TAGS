@@ -2,14 +2,17 @@
 ./Setup.hs,15
 main main1,2
 
-./src/Numeric/MCMC/Diagnostics.hs,467
+./src/Numeric/MCMC/Diagnostics.hs,548
 module Numeric.MCMC.DiagnosticsNumeric.MCMC.Diagnostics11,12
-data ExpectationSummary ExpectationSummary21,22
-data ExpectationSummary a = ExpectationSummary ExpectationSummary21,22
-data ExpectationSummary a = ExpectationSummary { mean mean21,22
-data ExpectationSummary a = ExpectationSummary { mean :: a, confidence confidence21,22
-data ExpectationSummary a = ExpectationSummary { mean :: a, confidence :: (a, a), rHat rHat21,22
-summarize summarize30,31
+data ExpectationSummary ExpectationSummary25,26
+data ExpectationSummary a = ExpectationSummary ExpectationSummary25,26
+data ExpectationSummary a = ExpectationSummary { mean mean25,26
+data ExpectationSummary a = ExpectationSummary { mean :: a, confidence confidence25,26
+data ExpectationSummary a = ExpectationSummary { mean :: a, confidence :: (a, a), rHat rHat25,26
+summarize summarize43,44
+mpsrf mpsrf64,65
+mpsrf mpsrf65,66
+mannWhitneyUTest mannWhitneyUTest105,106
 
 ./src/Graphics/Vegalite/ParameterPlot.hs,549
 module Graphics.VegaLite.ParameterPlotGraphics.VegaLite.ParameterPlot2,3
