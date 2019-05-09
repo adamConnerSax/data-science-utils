@@ -13,6 +13,7 @@ module Numeric.MCMC.Diagnostics
   ( summarize
   , mpsrf
   , ExpectationSummary(..)
+  , mannWhitneyUTest
   )
 where
 
