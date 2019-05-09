@@ -74,17 +74,17 @@ mpsrf expectations chains = do
     sumMatsF = FL.Fold (+) (LA.scale 0 $ LA.ident (length expectations)) id
     meanVecsF =
       (\m l -> LA.scale (1 / realToFrac l) m) <$> sumVecsF <*> FL.length
-    phiChains  = fmap (fmap mkVec) chains
     avgVec     = FL.fold meanVecsF
+    phiChains  = fmap (fmap mkVec) chains
     avgPhiEach = fmap avgVec phiChains
     diffProd :: LA.Vector Double -> LA.Vector Double -> LA.Matrix Double
     diffProd x y = (x - y) `LA.outer` (x - y)
-    w1 = fmap (\(ap, ps) -> fmap (\p -> diffProd ap p) ps)
+    w1 = fmap (\(ap, ps) -> fmap (\p -> diffProd p ap) ps)
       $ zip avgPhiEach phiChains -- [[(p - ap)(p - ap)']]
     w =
-      LA.scale (1 / realToFrac m * realToFrac (n - 1)) $ FL.fold sumMatsF $ fmap
-        (FL.fold sumMatsF)
-        w1
+      LA.scale (1 / (realToFrac m * realToFrac (n - 1)))
+        $ FL.fold sumMatsF
+        $ fmap (FL.fold sumMatsF) w1
     avgPhiAll = avgVec avgPhiEach
     b1        = fmap (\p -> diffProd p avgPhiAll) avgPhiEach
     b = LA.scale (realToFrac n / realToFrac (m - 1)) $ FL.fold sumMatsF b1
