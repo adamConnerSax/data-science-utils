@@ -1,28 +1,83 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 module Graphics.VegaLite.ParameterPlot
-  ( ParameterDetails(..)
+  ( ParameterEstimate(..)
+  , NamedParameterEstimate (..)
+  , parameterPlotVsTime
   , parameterPlot
   , parameterPlotMany
   , parameterPlotFlex
+  , DateTime (..)
   )
 where
 
 import qualified Control.Foldl                 as FL
+import qualified Data.Array                    as A
 import           Data.Functor.Identity          ( Identity(Identity) )
---import           Data.Maybe                     ( fromMaybe )
+import           Data.Maybe                     (fromMaybe)
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import qualified Graphics.Vega.VegaLite        as GV
+import           Graphics.Vega.VegaLite         (DateTime (..))
 import qualified Data.List                     as List
 import           Text.Printf                    ( printf )
 
 import qualified Statistics.Types              as S
 
+
+-- | A type to represent the details of a parameter estimate
+data ParameterEstimate = ParameterEstimate  { value :: Double, confidence :: (Double, Double) }
+data NamedParameterEstimate = NamedParameterEstimate { name :: Text, pEstimate :: ParameterEstimate }
+
+-- | Plot parameters vs. time
+parameterPlotVsTime :: (Functor f, Foldable f, A.Ix a)
+  => T.Text -- ^ Plot Title
+  -> T.Text -- ^ Label of ordinal type
+  -> Maybe T.Text -- ^ optional name of estimate value
+  -> (a -> Int)
+  -> a -- ^ lower bound on time
+  -> a -- ^ upper bound on time
+  -> f (T.Text, [(a, ParameterEstimate)]) -- ^ data 
+  -> GV.VegaLite
+parameterPlotVsTime title timeName valNameM timeToInt lower upper orderedParameterValues =
+  let valName = fromMaybe "Estimate" valNameM
+      toRowData n a (ParameterEstimate e (lo, hi)) =
+        [ ("Parameter", GV.Str n)
+        , (timeName, GV.Number $ realToFrac $ timeToInt a)
+        , (valName, GV.Number e)
+        , ("ConfLo", GV.Number lo)
+        , ("ConfHi", GV.Number hi)
+        ]
+      onePFold name = FL.Fold (\l (a, pe) -> (flip GV.dataRow [] $ toRowData name a pe) : l) [] (concat . reverse)  
+      dataRowFold = FL.Fold
+        (\l (name,a) ->  FL.fold (onePFold name) a : l)
+        []
+        (GV.dataFromRows [] . concat . reverse)
+      dat = FL.fold dataRowFold orderedParameterValues
+      xEnc = GV.position GV.X [GV.PName valName, GV.PmType GV.Ordinal]
+      yEnc = GV.position GV.Y [GV.PName timeName, GV.PmType GV.Quantitative
+                              , GV.PScale [GV.SDomain $ GV.DNumbers [realToFrac $ timeToInt lower, realToFrac $ timeToInt upper]]]
+      colorEnc = GV.color [GV.MName "Parameter", GV.MmType GV.Nominal]
+      enc = xEnc . yEnc . colorEnc
+      filter name = GV.transform . GV.filter (GV.FEqual "Parameter" (GV.Str name))
+      spec name = GV.asSpec [(GV.encoding . enc) [], GV.mark GV.Line [], filter name []]
+      specs = fmap (spec . fst) $ FL.fold FL.list orderedParameterValues
+      configuration = 
+        GV.configure
+          . GV.configuration (GV.View [GV.ViewWidth 800, GV.ViewHeight 400])
+          . GV.configuration (GV.Padding $ GV.PSize 50)
+      vl = GV.toVegaLite
+        [ GV.title title
+        , GV.layer specs
+        , dat
+        , configuration []
+        ]
+  in vl
+
 -- | Plot parameters with error bars
--- | Flex version handles a foldable of results so we can, e.g., 
--- | 1. Compare across time or other variable in the data
--- | 2. Compare different fitting methods for the same data
+--  Flex version handles a foldable of results so we can, e.g., 
+--  1. Compare across time or other variable in the data
+--  2. Compare different fitting methods for the same data
 
 -- TODO: Fix replicated y-axis ticks.  There since we need the difference between them (trailing "'"s) to provide y-offset
 -- to the different results.  Otherwise they would overlap in y.  Maybe fix by switching to layers and only having Y-axis labels
@@ -30,13 +85,13 @@ import qualified Statistics.Types              as S
 
 -- TODO: Make this typed?  Using a regression result with typed parameters?  Power-to-weight? 
 
-data ParameterDetails = ParameterDetails  { name :: Text, value :: Double, confidence :: (Double, Double) }
+
 
 parameterPlot
   :: (Functor f, Foldable f)
   => T.Text
   -> S.CL Double
-  -> f ParameterDetails
+  -> f NamedParameterEstimate
   -> GV.VegaLite
 parameterPlot title cl parameters =
   parameterPlotFlex False id title cl (fmap (\pd -> ("", pd)) parameters)
@@ -46,7 +101,7 @@ parameterPlotMany
   => (k -> T.Text)
   -> T.Text
   -> S.CL Double
-  -> f (k, ParameterDetails)
+  -> f (k, NamedParameterEstimate)
   -> GV.VegaLite
 parameterPlotMany = parameterPlotFlex True
 
@@ -56,11 +111,11 @@ parameterPlotFlex
   -> (k -> Text)
   -> T.Text
   -> S.CL Double
-  -> f (k, ParameterDetails)
+  -> f (k, NamedParameterEstimate)
   -> GV.VegaLite
 parameterPlotFlex haveLegend printKey title cl results
   = let
-      toRow m (ParameterDetails n e (lo, hi)) =
+      toRow m (NamedParameterEstimate n (ParameterEstimate e (lo, hi))) =
         [ ("Parameter", GV.Str n)
         , ("Estimate" , GV.Number e)
         , ("ConfLo"   , GV.Number lo)
@@ -90,10 +145,6 @@ parameterPlotFlex haveLegend printKey title cl results
       estimateColorEnc =
         GV.color $ handleLegend $ [GV.MName "Key", GV.MmType GV.Nominal]
       estimateEnc  = estimateXEnc . estimateYEnc . estimateColorEnc
---      estLoCalc   = "datum.Estimate - datum.Confidence/2"
---      estHiCalc   = "datum.Estimate + datum.Confidence/2"
---      calcEstConf =
---        GV.calculateAs estLoCalc "estLo" . GV.calculateAs estHiCalc "estHi"
       estConfLoEnc = GV.position
         GV.X
         [GV.PName "ConfLo", GV.PmType GV.Quantitative, GV.PAxis [GV.AxTitle ""]]
@@ -110,7 +161,6 @@ parameterPlotFlex haveLegend printKey title cl results
           . GV.configuration (GV.Padding $ GV.PSize 50)
       vl = GV.toVegaLite
         [ GV.title title
---        , (GV.transform . calcEstConf) []
         , GV.layer [estSpec, confSpec]
         , dat
         , configuration []
