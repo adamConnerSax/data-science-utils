@@ -54,11 +54,16 @@ parameterPlotVsTime title timeName valNameM timeToInt lower upper orderedParamet
         []
         (GV.dataFromRows [] . concat . reverse)
       dat = FL.fold dataRowFold orderedParameterValues
-      xEnc = GV.position GV.X [GV.PName valName, GV.PmType GV.Ordinal]
-      yEnc = GV.position GV.Y [GV.PName timeName, GV.PmType GV.Quantitative
-                              , GV.PScale [GV.SDomain $ GV.DNumbers [realToFrac $ timeToInt lower, realToFrac $ timeToInt upper]]]
+      xEnc = GV.position GV.X [GV.PName valName
+                              , GV.PmType GV.Quantitative
+                              ]
+      yEnc = GV.position GV.Y [GV.PName timeName
+                              , GV.PmType GV.Quantitative
+                              , GV.PScale [GV.SDomain $ GV.DNumbers [realToFrac $ timeToInt upper, realToFrac $ timeToInt lower]]
+                              ]
+      orderEnc = GV.order [GV.OName timeName, GV.OmType GV.Quantitative, GV.OSort [GV.Descending]]
       colorEnc = GV.color [GV.MName "Parameter", GV.MmType GV.Nominal]
-      enc = xEnc . yEnc . colorEnc
+      enc = xEnc . yEnc . colorEnc . orderEnc
       filter name = GV.transform . GV.filter (GV.FEqual "Parameter" (GV.Str name))
       spec name = GV.asSpec [(GV.encoding . enc) [], GV.mark GV.Line [], filter name []]
       specs = fmap (spec . fst) $ FL.fold FL.list orderedParameterValues
