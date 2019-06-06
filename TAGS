@@ -4,23 +4,32 @@ main main1,2
 
 ./src/Numeric/MCMC/Diagnostics.hs,548
 module Numeric.MCMC.DiagnosticsNumeric.MCMC.Diagnostics11,12
-data ExpectationSummary ExpectationSummary25,26
-data ExpectationSummary a = ExpectationSummary ExpectationSummary25,26
-data ExpectationSummary a = ExpectationSummary { mean mean25,26
-data ExpectationSummary a = ExpectationSummary { mean :: a, confidence confidence25,26
-data ExpectationSummary a = ExpectationSummary { mean :: a, confidence :: (a, a), rHat rHat25,26
-summarize summarize43,44
-mpsrf mpsrf64,65
+data ExpectationSummary ExpectationSummary26,27
+data ExpectationSummary a = ExpectationSummary ExpectationSummary26,27
+data ExpectationSummary a = ExpectationSummary { mean mean26,27
+data ExpectationSummary a = ExpectationSummary { mean :: a, confidence confidence26,27
+data ExpectationSummary a = ExpectationSummary { mean :: a, confidence :: (a, a), rHat rHat26,27
+summarize summarize44,45
 mpsrf mpsrf65,66
-mannWhitneyUTest mannWhitneyUTest105,106
+mpsrf mpsrf66,67
+mannWhitneyUTest mannWhitneyUTest106,107
 
-./src/Graphics/Vegalite/ParameterPlot.hs,549
+./src/Graphics/Vegalite/ParameterPlot.hs,997
 module Graphics.VegaLite.ParameterPlotGraphics.VegaLite.ParameterPlot2,3
-data ParameterDetails ParameterDetails32,33
-data ParameterDetails = ParameterDetails ParameterDetails32,33
-data ParameterDetails = ParameterDetails  { name name32,33
-data ParameterDetails = ParameterDetails  { name :: Text, value value32,33
-data ParameterDetails = ParameterDetails  { name :: Text, value :: Double, confidence confidence32,33
-parameterPlot parameterPlot40,41
-parameterPlotMany parameterPlotMany50,51
-parameterPlotFlex parameterPlotFlex60,61
+data ParameterEstimate ParameterEstimate32,33
+data ParameterEstimate = ParameterEstimate ParameterEstimate32,33
+data ParameterEstimate = ParameterEstimate  { value value32,33
+data ParameterEstimate = ParameterEstimate  { value :: Double, confidence confidence32,33
+data NamedParameterEstimate NamedParameterEstimate33,34
+data NamedParameterEstimate = NamedParameterEstimate NamedParameterEstimate33,34
+data NamedParameterEstimate = NamedParameterEstimate { name name33,34
+data NamedParameterEstimate = NamedParameterEstimate { name :: Text, pEstimate pEstimate33,34
+data YScaling YScaling34,35
+data YScaling = Default Default34,35
+data YScaling = Default | DataMinMax DataMinMax34,35
+toYear toYear37,38
+toYear toYear38,39
+parameterPlotVsTime parameterPlotVsTime51,52
+parameterPlot parameterPlot134,135
+parameterPlotMany parameterPlotMany144,145
+parameterPlotFlex parameterPlotFlex154,155

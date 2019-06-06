@@ -2,23 +2,27 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 module Graphics.VegaLite.ParameterPlot
   ( ParameterEstimate(..)
-  , NamedParameterEstimate (..)
+  , NamedParameterEstimate(..)
+  , YScaling(..)
   , parameterPlotVsTime
   , parameterPlot
   , parameterPlotMany
   , parameterPlotFlex
-  , DateTime (..)
+  -- * Re-exports
+  , DateTime(..)
   )
 where
 
 import qualified Control.Foldl                 as FL
+import           Control.Monad                  ( join )
 import qualified Data.Array                    as A
 import           Data.Functor.Identity          ( Identity(Identity) )
-import           Data.Maybe                     (fromMaybe)
+import           Data.Maybe                     ( fromMaybe )
+--import qualified Data.Profunctor               as P
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import qualified Graphics.Vega.VegaLite        as GV
-import           Graphics.Vega.VegaLite         (DateTime (..))
+import           Graphics.Vega.VegaLite         ( DateTime(..) )
 import qualified Data.List                     as List
 import           Text.Printf                    ( printf )
 
@@ -28,56 +32,86 @@ import qualified Statistics.Types              as S
 -- | A type to represent the details of a parameter estimate
 data ParameterEstimate = ParameterEstimate  { value :: Double, confidence :: (Double, Double) }
 data NamedParameterEstimate = NamedParameterEstimate { name :: Text, pEstimate :: ParameterEstimate }
+data YScaling = Default | DataMinMax deriving (Eq)
+
+-- helpers for dates
+toYear :: Int -> [GV.DateTime]
+toYear y = [GV.DTYear y, GV.DTMonth GV.January, GV.DTDay 1]
 
 -- | Plot parameters vs. time
-parameterPlotVsTime :: (Functor f, Foldable f, A.Ix a)
+parameterPlotVsTime
+  :: (Traversable f, A.Ix a)
   => T.Text -- ^ Plot Title
   -> T.Text -- ^ Label of ordinal type
+  -> Maybe T.Text -- ^ optional name of parameter
   -> Maybe T.Text -- ^ optional name of estimate value
+  -> YScaling
   -> (a -> Int)
-  -> a -- ^ lower bound on time
-  -> a -- ^ upper bound on time
   -> f (T.Text, [(a, ParameterEstimate)]) -- ^ data 
   -> GV.VegaLite
-parameterPlotVsTime title timeName valNameM timeToInt lower upper orderedParameterValues =
-  let valName = fromMaybe "Estimate" valNameM
+parameterPlotVsTime title timeName parameterNameM valNameM yScaling timeToInt orderedParameterValues
+  = let
+      valName       = fromMaybe "Estimate" valNameM
+      parameterName = fromMaybe "Parameter" parameterNameM
+      minYM         = join $ fmap (FL.fold FL.minimum) $ traverse
+        (FL.fold (FL.premap (value . snd) FL.minimum) . snd)
+        orderedParameterValues
+      maxYM = join $ fmap (FL.fold FL.maximum) $ traverse
+        (FL.fold (FL.premap (value . snd) FL.maximum) . snd)
+        orderedParameterValues
+      yScale = case (,) <$> minYM <*> maxYM of
+        Nothing       -> []
+        Just (lo, hi) -> if (yScaling == DataMinMax)
+          then [GV.PScale [GV.SDomain $ GV.DNumbers [lo, hi]]]
+          else []
       toRowData n a (ParameterEstimate e (lo, hi)) =
-        [ ("Parameter", GV.Str n)
-        , (timeName, GV.Number $ realToFrac $ timeToInt a)
-        , (valName, GV.Number e)
-        , ("ConfLo", GV.Number lo)
-        , ("ConfHi", GV.Number hi)
+        [ (parameterName, GV.Str n)
+        , (timeName     , GV.Number $ realToFrac $ timeToInt a)
+        , (valName      , GV.Number e)
+        , ("ConfLo"     , GV.Number lo)
+        , ("ConfHi"     , GV.Number hi)
         ]
-      onePFold name = FL.Fold (\l (a, pe) -> (flip GV.dataRow [] $ toRowData name a pe) : l) [] (concat . reverse)  
-      dataRowFold = FL.Fold
-        (\l (name,a) ->  FL.fold (onePFold name) a : l)
+      onePFold name = FL.Fold
+        (\l (a, pe) -> (flip GV.dataRow [] $ toRowData name a pe) : l)
         []
-        (GV.dataFromRows [] . concat . reverse)
+        (concat . reverse)
+      dataRowFold = FL.Fold (\l (name, a) -> FL.fold (onePFold name) a : l)
+                            []
+                            (GV.dataFromRows [] . concat . reverse)
       dat = FL.fold dataRowFold orderedParameterValues
-      xEnc = GV.position GV.X [GV.PName valName
-                              , GV.PmType GV.Quantitative
-                              ]
-      yEnc = GV.position GV.Y [GV.PName timeName
-                              , GV.PmType GV.Quantitative
-                              , GV.PScale [GV.SDomain $ GV.DNumbers [realToFrac $ timeToInt upper, realToFrac $ timeToInt lower]]
-                              ]
-      orderEnc = GV.order [GV.OName timeName, GV.OmType GV.Quantitative, GV.OSort [GV.Descending]]
-      colorEnc = GV.color [GV.MName "Parameter", GV.MmType GV.Nominal]
-      enc = xEnc . yEnc . colorEnc . orderEnc
-      filter name = GV.transform . GV.filter (GV.FEqual "Parameter" (GV.Str name))
-      spec name = GV.asSpec [(GV.encoding . enc) [], GV.mark GV.Line [], filter name []]
-      specs = fmap (spec . fst) $ FL.fold FL.list orderedParameterValues
-      configuration = 
+      yEnc =
+        GV.position GV.Y
+          $  [GV.PName valName, GV.PmType GV.Quantitative]
+          ++ yScale
+      xEnc = GV.position GV.X [GV.PName timeName, GV.PmType GV.Quantitative]
+      orderEnc =
+        GV.order
+          [ GV.OName timeName
+          , GV.OmType GV.Quantitative
+          , GV.OSort [GV.Ascending]
+          ]
+      colorEnc = GV.color [GV.MName parameterName, GV.MmType GV.Nominal]
+      enc      = xEnc . yEnc . colorEnc . orderEnc
+      filter name =
+        GV.transform . GV.filter (GV.FEqual parameterName (GV.Str name))
+      lSpec name = GV.asSpec
+        [ (GV.encoding . enc) []
+        , GV.mark GV.Line [GV.MInterpolate GV.Monotone]
+        , filter name []
+        ]
+      mSpec name =
+        GV.asSpec [(GV.encoding . enc) [], GV.mark GV.Point [], filter name []]
+      specs = concat $ fmap (\(x, _) -> [lSpec x, mSpec x]) $ FL.fold
+        FL.list
+        orderedParameterValues
+      configuration =
         GV.configure
           . GV.configuration (GV.View [GV.ViewWidth 800, GV.ViewHeight 400])
           . GV.configuration (GV.Padding $ GV.PSize 50)
-      vl = GV.toVegaLite
-        [ GV.title title
-        , GV.layer specs
-        , dat
-        , configuration []
-        ]
-  in vl
+      vl =
+        GV.toVegaLite [GV.title title, GV.layer specs, dat, configuration []]
+    in
+      vl
 
 -- | Plot parameters with error bars
 --  Flex version handles a foldable of results so we can, e.g., 
@@ -165,10 +199,6 @@ parameterPlotFlex haveLegend printKey title cl results
           . GV.configuration (GV.View [GV.ViewWidth 800, GV.ViewHeight 400])
           . GV.configuration (GV.Padding $ GV.PSize 50)
       vl = GV.toVegaLite
-        [ GV.title title
-        , GV.layer [estSpec, confSpec]
-        , dat
-        , configuration []
-        ]
+        [GV.title title, GV.layer [estSpec, confSpec], dat, configuration []]
     in
       vl
