@@ -1,18 +1,8 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TypeApplications      #-}
-module Graphics.VegaLite.ParameterPlot
-  ( ParameterEstimate(..)
-  , NamedParameterEstimate(..)
-  , YScaling(..)
-  , intYear
-  , parameterPlotVsTime
-  , parameterPlot
-  , parameterPlotMany
-  , parameterPlotFlex
-  -- * Re-exports
-  , DateTime(..)
-  )
+module Visualization.VegaLite.StackedArea
+  ()
 where
 
 import qualified Control.Foldl                 as FL
@@ -20,7 +10,6 @@ import           Control.Monad                  ( join )
 import qualified Data.Array                    as A
 import           Data.Functor.Identity          ( Identity(Identity) )
 import           Data.Maybe                     ( fromMaybe )
---import qualified Data.Profunctor               as P
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import qualified Graphics.Vega.VegaLite        as GV
@@ -30,6 +19,17 @@ import           Text.Printf                    ( printf )
 
 import qualified Statistics.Types              as S
 
+
+
+
+
+stackedAreaVsTime
+  :: Traversable f
+  => T.Text
+  -> TimeEncoding a
+  -> f (T.Text, [(a, b)])
+  -> GV.VegaLite
+stackedAreaVsTime
 
 -- | A type to represent the details of a parameter estimate
 data ParameterEstimate = ParameterEstimate  { value :: Double, confidence :: (Double, Double) }
