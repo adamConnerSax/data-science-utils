@@ -14,22 +14,27 @@ mpsrf mpsrf65,66
 mpsrf mpsrf66,67
 mannWhitneyUTest mannWhitneyUTest106,107
 
-./src/Graphics/Vegalite/ParameterPlot.hs,997
-module Graphics.VegaLite.ParameterPlotGraphics.VegaLite.ParameterPlot2,3
-data ParameterEstimate ParameterEstimate32,33
-data ParameterEstimate = ParameterEstimate ParameterEstimate32,33
-data ParameterEstimate = ParameterEstimate  { value value32,33
-data ParameterEstimate = ParameterEstimate  { value :: Double, confidence confidence32,33
-data NamedParameterEstimate NamedParameterEstimate33,34
-data NamedParameterEstimate = NamedParameterEstimate NamedParameterEstimate33,34
-data NamedParameterEstimate = NamedParameterEstimate { name name33,34
-data NamedParameterEstimate = NamedParameterEstimate { name :: Text, pEstimate pEstimate33,34
-data YScaling YScaling34,35
-data YScaling = Default Default34,35
-data YScaling = Default | DataMinMax DataMinMax34,35
-toYear toYear37,38
-toYear toYear38,39
-parameterPlotVsTime parameterPlotVsTime51,52
-parameterPlot parameterPlot134,135
-parameterPlotMany parameterPlotMany144,145
-parameterPlotFlex parameterPlotFlex154,155
+./src/Graphics/Vegalite/ParameterPlot.hs,1338
+module Graphics.VegaLite.ParameterPlotGraphics.VegaLite.ParameterPlot3,4
+data ParameterEstimate ParameterEstimate34,35
+data ParameterEstimate = ParameterEstimate ParameterEstimate34,35
+data ParameterEstimate = ParameterEstimate  { value value34,35
+data ParameterEstimate = ParameterEstimate  { value :: Double, confidence confidence34,35
+data NamedParameterEstimate NamedParameterEstimate35,36
+data NamedParameterEstimate = NamedParameterEstimate NamedParameterEstimate35,36
+data NamedParameterEstimate = NamedParameterEstimate { name name35,36
+data NamedParameterEstimate = NamedParameterEstimate { name :: Text, pEstimate pEstimate35,36
+data YScaling YScaling36,37
+data YScaling = Default Default36,37
+data YScaling = Default | DataMinMax DataMinMax36,37
+data TimeEncoding TimeEncoding37,38
+data TimeEncoding a = TimeEncoding TimeEncoding37,38
+data TimeEncoding a = TimeEncoding { toStr toStr37,38
+data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat timeFormat37,38
+data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat :: Text, timeUnit timeUnit37,38
+intYear intYear41,42
+intYear intYear42,43
+parameterPlotVsTime parameterPlotVsTime55,56
+parameterPlot parameterPlot142,143
+parameterPlotMany parameterPlotMany152,153
+parameterPlotFlex parameterPlotFlex162,163

@@ -1,9 +1,11 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeApplications      #-}
 module Graphics.VegaLite.ParameterPlot
   ( ParameterEstimate(..)
   , NamedParameterEstimate(..)
   , YScaling(..)
+  , intYear
   , parameterPlotVsTime
   , parameterPlot
   , parameterPlotMany
@@ -33,10 +35,12 @@ import qualified Statistics.Types              as S
 data ParameterEstimate = ParameterEstimate  { value :: Double, confidence :: (Double, Double) }
 data NamedParameterEstimate = NamedParameterEstimate { name :: Text, pEstimate :: ParameterEstimate }
 data YScaling = Default | DataMinMax deriving (Eq)
+data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat :: Text, timeUnit :: GV.TimeUnit }
 
--- helpers for dates
-toYear :: Int -> [GV.DateTime]
-toYear y = [GV.DTYear y, GV.DTMonth GV.January, GV.DTDay 1]
+-- helpers for time encoding
+-- this should be a separate module with support for a variety of things.
+intYear :: TimeEncoding Int
+intYear = TimeEncoding (T.pack . show) "%Y" GV.Year
 
 -- | Plot parameters vs. time
 parameterPlotVsTime
@@ -46,10 +50,10 @@ parameterPlotVsTime
   -> Maybe T.Text -- ^ optional name of parameter
   -> Maybe T.Text -- ^ optional name of estimate value
   -> YScaling
-  -> (a -> Int)
+  -> TimeEncoding a
   -> f (T.Text, [(a, ParameterEstimate)]) -- ^ data 
   -> GV.VegaLite
-parameterPlotVsTime title timeName parameterNameM valNameM yScaling timeToInt orderedParameterValues
+parameterPlotVsTime title timeName parameterNameM valNameM yScaling (TimeEncoding toDTs tf tu) orderedParameterValues
   = let
       valName       = fromMaybe "Estimate" valNameM
       parameterName = fromMaybe "Parameter" parameterNameM
@@ -65,33 +69,37 @@ parameterPlotVsTime title timeName parameterNameM valNameM yScaling timeToInt or
           then [GV.PScale [GV.SDomain $ GV.DNumbers [lo, hi]]]
           else []
       toRowData n a (ParameterEstimate e (lo, hi)) =
-        [ (parameterName, GV.Str n)
-        , (timeName     , GV.Number $ realToFrac $ timeToInt a)
-        , (valName      , GV.Number e)
-        , ("ConfLo"     , GV.Number lo)
-        , ("ConfHi"     , GV.Number hi)
+        [ ( parameterName
+          , GV.Str n
+          )
+--        , (timeName     , GV.Number $ realToFrac $ timeToInt a)
+        , (timeName, GV.Str $ toDTs a)
+        , (valName , GV.Number e)
+        , ("ConfLo", GV.Number lo)
+        , ("ConfHi", GV.Number hi)
         ]
       onePFold name = FL.Fold
         (\l (a, pe) -> (flip GV.dataRow [] $ toRowData name a pe) : l)
         []
         (concat . reverse)
-      dataRowFold = FL.Fold (\l (name, a) -> FL.fold (onePFold name) a : l)
-                            []
-                            (GV.dataFromRows [] . concat . reverse)
+      dataRowFold = FL.Fold
+        (\l (name, a) -> FL.fold (onePFold name) a : l)
+        []
+        ( GV.dataFromRows [GV.Parse [(timeName, GV.FoDate tf)]]
+        . concat
+        . reverse
+        )
       dat = FL.fold dataRowFold orderedParameterValues
       yEnc =
         GV.position GV.Y
           $  [GV.PName valName, GV.PmType GV.Quantitative]
           ++ yScale
-      xEnc = GV.position GV.X [GV.PName timeName, GV.PmType GV.Quantitative]
-      orderEnc =
-        GV.order
-          [ GV.OName timeName
-          , GV.OmType GV.Quantitative
-          , GV.OSort [GV.Ascending]
-          ]
+      xEnc = GV.position
+        GV.X
+        [GV.PName timeName, GV.PmType GV.Temporal, GV.PTimeUnit tu]
+      orderEnc = GV.order [GV.OName timeName, GV.OmType GV.Temporal]
       colorEnc = GV.color [GV.MName parameterName, GV.MmType GV.Nominal]
-      enc      = xEnc . yEnc . colorEnc . orderEnc
+      enc      = xEnc . yEnc . colorEnc -- . orderEnc
       filter name =
         GV.transform . GV.filter (GV.FEqual parameterName (GV.Str name))
       lSpec name = GV.asSpec
