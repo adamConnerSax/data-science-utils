@@ -15,8 +15,9 @@ extra-source-files:  CHANGELOG.md
 
 library
   exposed-modules: Numeric.MCMC.Diagnostics
-                 , Visualization.VegaLite.ParameterPlot
                  , Visualization.VegaLite.Common
+                 , Visualization.VegaLite.ParameterPlot
+                 , Visualization.VegaLite.StackedArea
   -- other-modules:
   -- other-extensions:
   build-depends:       base ^>=4.12.0.0,

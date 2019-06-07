@@ -10,7 +10,9 @@ module Visualization.VegaLite.ParameterPlot
   , parameterPlot
   , parameterPlotMany
   , parameterPlotFlex
-  -- * Re-exports
+    -- * Configuration Re-exports
+  , ViewConfig(..)
+    -- * Re-exports
   , DateTime(..)
   )
 where
@@ -18,6 +20,8 @@ where
 import qualified Visualization.VegaLite.Common as VC
 import           Visualization.VegaLite.Common  ( Scaling
                                                 , intYear
+                                                , ViewConfig(..)
+                                                , viewConfigAsHvega
                                                 )
 import qualified Control.Foldl                 as FL
 import           Control.Monad                  ( join )
@@ -48,9 +52,10 @@ parameterPlotVsTime
   -> Maybe T.Text -- ^ optional name of estimate value
   -> VC.Scaling
   -> VC.TimeEncoding a
+  -> ViewConfig
   -> f (T.Text, [(a, ParameterEstimate)]) -- ^ data 
   -> GV.VegaLite
-parameterPlotVsTime title timeName parameterNameM valNameM yScaling timeEnc orderedParameterValues
+parameterPlotVsTime title timeName parameterNameM valNameM yScaling timeEnc vc orderedParameterValues
   = let
       valName       = fromMaybe "Estimate" valNameM
       parameterName = fromMaybe "Parameter" parameterNameM
@@ -110,10 +115,7 @@ parameterPlotVsTime title timeName parameterNameM valNameM yScaling timeEnc orde
       specs = concat $ fmap (\(x, _) -> [lSpec x, mSpec x]) $ FL.fold
         FL.list
         orderedParameterValues
-      configuration =
-        GV.configure
-          . GV.configuration (GV.View [GV.ViewWidth 800, GV.ViewHeight 400])
-          . GV.configuration (GV.Padding $ GV.PSize 50)
+      configuration = GV.configure . viewConfigAsHvega vc
       vl =
         GV.toVegaLite [GV.title title, GV.layer specs, dat, configuration []]
     in
@@ -136,16 +138,18 @@ parameterPlot
   :: (Functor f, Foldable f)
   => T.Text
   -> S.CL Double
+  -> VC.ViewConfig
   -> f NamedParameterEstimate
   -> GV.VegaLite
-parameterPlot title cl parameters =
-  parameterPlotFlex False id title cl (fmap (\pd -> ("", pd)) parameters)
+parameterPlot title cl vc parameters =
+  parameterPlotFlex False id title cl vc (fmap (\pd -> ("", pd)) parameters)
 
 parameterPlotMany
   :: Foldable f
   => (k -> T.Text)
   -> T.Text
   -> S.CL Double
+  -> VC.ViewConfig
   -> f (k, NamedParameterEstimate)
   -> GV.VegaLite
 parameterPlotMany = parameterPlotFlex True
@@ -156,9 +160,10 @@ parameterPlotFlex
   -> (k -> Text)
   -> T.Text
   -> S.CL Double
+  -> VC.ViewConfig
   -> f (k, NamedParameterEstimate)
   -> GV.VegaLite
-parameterPlotFlex haveLegend printKey title cl results
+parameterPlotFlex haveLegend printKey title cl vc results
   = let
       toRow m (NamedParameterEstimate n (ParameterEstimate e (lo, hi))) =
         [ ("Parameter", GV.Str n)
@@ -198,12 +203,9 @@ parameterPlotFlex haveLegend printKey title cl results
         [GV.PName "ConfHi", GV.PmType GV.Quantitative, GV.PAxis [GV.AxTitle ""]]
       estConfEnc =
         estConfLoEnc . estConfHiEnc . estimateYEnc . estimateColorEnc
-      estSpec  = GV.asSpec [(GV.encoding . estimateEnc) [], GV.mark GV.Point []]
+      estSpec = GV.asSpec [(GV.encoding . estimateEnc) [], GV.mark GV.Point []]
       confSpec = GV.asSpec [(GV.encoding . estConfEnc) [], GV.mark GV.Rule []]
-      configuration =
-        GV.configure
-          . GV.configuration (GV.View [GV.ViewWidth 800, GV.ViewHeight 400])
-          . GV.configuration (GV.Padding $ GV.PSize 50)
+      configuration = GV.configure . viewConfigAsHvega vc
       vl = GV.toVegaLite
         [GV.title title, GV.layer [estSpec, confSpec], dat, configuration []]
     in
