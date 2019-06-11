@@ -11,6 +11,13 @@ module Visualization.VegaLite.Common
   , intYear
   , timeField
   , viewConfigAsHvega
+    -- * GOG 
+  , FieldType (..)
+  , FieldValue (..)
+  , FieldIndex(..)
+  , labelAt
+  , DataRows(..)
+  , toHvegaData
     -- * Re-exports
 --  , TimeUnit(..)
   )
@@ -69,6 +76,9 @@ itemFieldType (Boolean  _) = BooleanField
 -- | type to represent the String version of column names and map to the index
 data FieldIndex k where
   FieldIndex :: A.Ix k => M.Map T.Text k ->  A.Array k (T.Text, FieldType) -> FieldIndex k
+
+labelAt :: A.Ix k => FieldIndex k -> k -> T.Text 
+labelAt (FieldIndex _ fa) k = fst $ fa A.! k
 
 data DataRows f k where
   DataRows :: (A.Ix k, Traversable f) => FieldIndex k -> f (A.Array k FieldValue) -> DataRows f k

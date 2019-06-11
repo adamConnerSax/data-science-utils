@@ -27,6 +27,31 @@ import           Text.Printf                    ( printf )
 
 import qualified Statistics.Types              as S
 
+
+data StackedArea k = StackedArea { groupField :: k, timeField :: k, amountField :: k}
+stackedAreaVsTimeGOG :: (Traversable f, A.Ix k)
+  => T.Text -- ^ Title
+  -> StackedArea k -- ^ Stacked Area field indices
+  -> VC.DataRows f k -- ^data
+  -> GV.TimeUnit -- ^ time resolution for X encoding 
+  -> VC.ViewConfig -- sizing information 
+  -> GV.VegaLite
+stackedAreaVsTimeGOG title (StackedArea kGroup kTime kAmount) dr@(VC.DataRows fi _) tu vc =
+  let dat = VC.toHvegaData dr
+      xEnc = GV.position GV.X [ GV.PName (VC.labelAt fi kTime), GV.PmType GV.Temporal, GV.PTimeUnit tu]
+      yEnc = GV.position GV.Y [ GV.PName (VC.labelAt fi kAmount), GV.PmType GV.Quantitative]
+      colorEnc = GV.color [GV.MName (VC.labelAt fi kGroup), GV.MmType GV.Nominal]
+      enc = xEnc . yEnc . colorEnc
+      specs =
+        [ GV.asSpec
+            [ (GV.encoding . enc) []
+            , GV.mark GV.Area [GV.MInterpolate GV.Monotone]
+            ]
+        ]          
+      configuration = GV.configure . VC.viewConfigAsHvega vc
+  in GV.toVegaLite [GV.title title, GV.layer specs, dat, configuration []]
+
+        
 stackedAreaVsTime
   :: (Traversable f, Real b)
   => T.Text -- ^ Title
