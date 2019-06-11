@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4312817dd1a930fa0f74eba4e2fbc62ace4aca6f2d1350d3878de2d5204b9095
+-- hash: f762070e5e0b72fd7bbdb864fce201125675b767f17b9daaafa20f71e60807a0
 
 name:                data-science-utils
 version:             0.1.0.0
@@ -35,9 +35,6 @@ flag dump-core
 library
   exposed-modules:
       Numeric.MCMC.Diagnostics
-      Visualization.VegaLite.Common
-      Visualization.VegaLite.ParameterPlot
-      Visualization.VegaLite.StackedArea
   other-modules:
       Paths_data_science_utils
   build-depends:
