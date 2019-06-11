@@ -2,79 +2,109 @@
 ./Setup.hs,15
 main main1,2
 
-./src/Visualization/VegaLite/Common.hs,2232
-module Visualization.VegaLite.CommonVisualization.VegaLite.Common3,4
-data Scaling Scaling31,32
-data Scaling = Default Default31,32
-data Scaling = Default | DataMinMax DataMinMax31,32
-data ViewConfig ViewConfig33,34
-data ViewConfig = ViewConfig ViewConfig33,34
-data ViewConfig = ViewConfig { vcWidth vcWidth33,34
-data ViewConfig = ViewConfig { vcWidth :: Double, vcHeight vcHeight33,34
-data ViewConfig = ViewConfig { vcWidth :: Double, vcHeight :: Double, vcPadding vcPadding33,34
-viewConfigAsHvega viewConfigAsHvega35,36
-viewConfigAsHvega viewConfigAsHvega36,37
-data TimeEncoding TimeEncoding40,41
-data TimeEncoding a = TimeEncoding TimeEncoding40,41
-data TimeEncoding a = TimeEncoding { toStr toStr40,41
-data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat timeFormat40,41
-data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat :: Text, timeUnit timeUnit40,41
-intYear intYear43,44
-intYear intYear44,45
-timeField timeField46,47
-timeField timeField47,48
-data FieldType FieldType52,53
-data FieldType = StrField StrField52,53
-data FieldType = StrField | NumberField NumberField52,53
-data FieldType = StrField | NumberField | DateTimeField DateTimeField52,53
-data FieldType = StrField | NumberField | DateTimeField | YearField YearField52,53
-data FieldType = StrField | NumberField | DateTimeField | YearField | BooleanFieldBooleanField52,53
-data FieldValue FieldValue54,55
-  Str Str55,56
-  Number Number56,57
-  DateTime DateTime57,58
-  Year Year58,59
-  Boolean Boolean59,60
-  Str Str55,56
-  Number Number56,57
-  DateTime DateTime57,58
-  Year Year58,59
-  Boolean Boolean59,60
-itemFieldType itemFieldType61,62
-itemFieldType itemFieldType62,63
-data FieldIndex FieldIndex69,70
-  FieldIndex FieldIndex70,71
-data DataRows DataRows72,73
-  DataRows DataRows73,74
-toHvegaDataValue toHvegaDataValue77,78
-toHvegaDataValue toHvegaDataValue78,79
-hvegaDataType hvegaDataType85,86
-hvegaDataType hvegaDataType86,87
-hvegaParseList hvegaParseList90,91
-hvegaParseList hvegaParseList91,92
-toHvegaDataRow toHvegaDataRow96,97
-toHvegaDataRow toHvegaDataRow97,98
-toHvegaData toHvegaData102,103
-toHvegaData toHvegaData103,104
+./src/Visualization/VegaLite/Common.hs,3436
+module Visualization.VegaLite.CommonVisualization.VegaLite.Common4,5
+data Scaling Scaling47,48
+data Scaling = Default Default47,48
+data Scaling = Default | DataMinMax DataMinMax47,48
+data ViewConfig ViewConfig49,50
+data ViewConfig = ViewConfig ViewConfig49,50
+data ViewConfig = ViewConfig { vcWidth vcWidth49,50
+data ViewConfig = ViewConfig { vcWidth :: Double, vcHeight vcHeight49,50
+data ViewConfig = ViewConfig { vcWidth :: Double, vcHeight :: Double, vcPadding vcPadding49,50
+viewConfigAsHvega viewConfigAsHvega51,52
+viewConfigAsHvega viewConfigAsHvega52,53
+data TimeEncoding TimeEncoding56,57
+data TimeEncoding a = TimeEncoding TimeEncoding56,57
+data TimeEncoding a = TimeEncoding { toStr toStr56,57
+data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat timeFormat56,57
+data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat :: Text, timeUnit timeUnit56,57
+intYear intYear59,60
+intYear intYear60,61
+timeField timeField62,63
+timeField timeField63,64
+data FieldType FieldType68,69
+data FieldType = StrField StrField68,69
+data FieldType = StrField | CountField CountField68,69
+data FieldType = StrField | CountField | NumberField NumberField68,69
+data FieldType = StrField | CountField | NumberField | DateTimeField DateTimeField68,69
+data FieldType = StrField | CountField | NumberField | DateTimeField | IntYearField IntYearField68,69
+data FieldType = StrField | CountField | NumberField | DateTimeField | IntYearField | BooleanField BooleanField68,69
+data FieldValue FieldValue71,72
+  Str Str72,73
+  Count Count73,74
+  Number Number74,75
+  DateTime DateTime75,76
+  IntYear IntYear76,77
+  Boolean Boolean77,78
+  Str Str72,73
+  Count Count73,74
+  Number Number74,75
+  DateTime DateTime75,76
+  IntYear IntYear76,77
+  Boolean Boolean77,78
+data FieldIndex FieldIndex89,90
+  FieldIndex FieldIndex90,91
+labelAt labelAt92,93
+labelAt labelAt93,94
+fieldTypeAt fieldTypeAt95,96
+fieldTypeAt fieldTypeAt96,97
+indexFor indexFor98,99
+indexFor indexFor99,100
+changeLabel changeLabel101,102
+changeLabel changeLabel102,103
+fieldIndexFromLabeledTypes fieldIndexFromLabeledTypes109,110
+fieldIndexFromLabeledTypes fieldIndexFromLabeledTypes110,111
+data DataRows DataRows117,118
+  DataRows DataRows118,119
+checkLabels checkLabels120,121
+checkLabels checkLabels121,122
+data FieldLoader FieldLoader129,130
+data FieldLoader a = FieldLoader FieldLoader129,130
+data FieldLoader a = FieldLoader { flType flType129,130
+data FieldLoader a = FieldLoader { flType :: FieldType, fLoader fLoader129,130
+strLoader strLoader131,132
+strLoader strLoader132,133
+countLoader countLoader134,135
+countLoader countLoader135,136
+numLoader numLoader137,138
+numLoader numLoader138,139
+dateTimeLoader dateTimeLoader140,141
+dateTimeLoader dateTimeLoader141,142
+intYearLoader intYearLoader143,144
+intYearLoader intYearLoader144,145
+boolLoader boolLoader146,147
+boolLoader boolLoader147,148
+buildDataRows buildDataRows151,152
+toHvegaDataValue toHvegaDataValue161,162
+toHvegaDataValue toHvegaDataValue162,163
+hvegaDataType hvegaDataType170,171
+hvegaDataType hvegaDataType171,172
+hvegaParseList hvegaParseList175,176
+hvegaParseList hvegaParseList176,177
+toHvegaDataRow toHvegaDataRow181,182
+toHvegaDataRow toHvegaDataRow182,183
+toHvegaData toHvegaData187,188
+toHvegaData toHvegaData188,189
 
 ./src/Visualization/VegaLite/StackedArea.hs,124
 module Visualization.VegaLite.StackedAreaVisualization.VegaLite.StackedArea3,4
-stackedAreaVsTime stackedAreaVsTime39,40
+stackedAreaVsTime stackedAreaVsTime32,33
 
 ./src/Visualization/VegaLite/ParameterPlot.hs,841
 module Visualization.VegaLite.ParameterPlotVisualization.VegaLite.ParameterPlot3,4
-data ParameterEstimate ParameterEstimate42,43
-data ParameterEstimate = ParameterEstimate ParameterEstimate42,43
-data ParameterEstimate = ParameterEstimate  { value value42,43
-data ParameterEstimate = ParameterEstimate  { value :: Double, confidence confidence42,43
-data NamedParameterEstimate NamedParameterEstimate43,44
-data NamedParameterEstimate = NamedParameterEstimate NamedParameterEstimate43,44
-data NamedParameterEstimate = NamedParameterEstimate { name name43,44
-data NamedParameterEstimate = NamedParameterEstimate { name :: Text, pEstimate pEstimate43,44
-parameterPlotVsTime parameterPlotVsTime57,58
-parameterPlot parameterPlot143,144
-parameterPlotMany parameterPlotMany154,155
-parameterPlotFlex parameterPlotFlex165,166
+data ParameterEstimate ParameterEstimate43,44
+data ParameterEstimate = ParameterEstimate ParameterEstimate43,44
+data ParameterEstimate = ParameterEstimate  { value value43,44
+data ParameterEstimate = ParameterEstimate  { value :: Double, confidence confidence43,44
+data NamedParameterEstimate NamedParameterEstimate44,45
+data NamedParameterEstimate = NamedParameterEstimate NamedParameterEstimate44,45
+data NamedParameterEstimate = NamedParameterEstimate { name name44,45
+data NamedParameterEstimate = NamedParameterEstimate { name :: Text, pEstimate pEstimate44,45
+parameterPlotVsTime parameterPlotVsTime58,59
+parameterPlot parameterPlot144,145
+parameterPlotMany parameterPlotMany155,156
+parameterPlotFlex parameterPlotFlex166,167
 
 ./src/Numeric/MCMC/Diagnostics.hs,548
 module Numeric.MCMC.DiagnosticsNumeric.MCMC.Diagnostics11,12

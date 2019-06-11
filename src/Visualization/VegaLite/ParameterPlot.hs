@@ -10,8 +10,10 @@ module Visualization.VegaLite.ParameterPlot
   , parameterPlot
   , parameterPlotMany
   , parameterPlotFlex
+
     -- * Configuration Re-exports
   , ViewConfig(..)
+
     -- * Re-exports
   , DateTime(..)
   )
@@ -28,7 +30,6 @@ import           Control.Monad                  ( join )
 import qualified Data.Array                    as A
 import           Data.Functor.Identity          ( Identity(Identity) )
 import           Data.Maybe                     ( fromMaybe )
---import qualified Data.Profunctor               as P
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import qualified Graphics.Vega.VegaLite        as GV
