@@ -2,33 +2,66 @@
 ./Setup.hs,15
 main main1,2
 
-./src/Visualization/Vegalite/Common.hs,1021
-module Visualization.VegaLite.CommonVisualization.VegaLite.Common2,3
-data Scaling Scaling22,23
-data Scaling = Default Default22,23
-data Scaling = Default | DataMinMax DataMinMax22,23
-data ViewConfig ViewConfig24,25
-data ViewConfig = ViewConfig ViewConfig24,25
-data ViewConfig = ViewConfig { vcWidth vcWidth24,25
-data ViewConfig = ViewConfig { vcWidth :: Double, vcHeight vcHeight24,25
-data ViewConfig = ViewConfig { vcWidth :: Double, vcHeight :: Double, vcPadding vcPadding24,25
-viewConfigAsHvega viewConfigAsHvega26,27
-viewConfigAsHvega viewConfigAsHvega27,28
-data TimeEncoding TimeEncoding31,32
-data TimeEncoding a = TimeEncoding TimeEncoding31,32
-data TimeEncoding a = TimeEncoding { toStr toStr31,32
-data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat timeFormat31,32
-data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat :: Text, timeUnit timeUnit31,32
-intYear intYear34,35
-intYear intYear35,36
-timeField timeField37,38
-timeField timeField38,39
+./src/Visualization/VegaLite/Common.hs,2232
+module Visualization.VegaLite.CommonVisualization.VegaLite.Common3,4
+data Scaling Scaling31,32
+data Scaling = Default Default31,32
+data Scaling = Default | DataMinMax DataMinMax31,32
+data ViewConfig ViewConfig33,34
+data ViewConfig = ViewConfig ViewConfig33,34
+data ViewConfig = ViewConfig { vcWidth vcWidth33,34
+data ViewConfig = ViewConfig { vcWidth :: Double, vcHeight vcHeight33,34
+data ViewConfig = ViewConfig { vcWidth :: Double, vcHeight :: Double, vcPadding vcPadding33,34
+viewConfigAsHvega viewConfigAsHvega35,36
+viewConfigAsHvega viewConfigAsHvega36,37
+data TimeEncoding TimeEncoding40,41
+data TimeEncoding a = TimeEncoding TimeEncoding40,41
+data TimeEncoding a = TimeEncoding { toStr toStr40,41
+data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat timeFormat40,41
+data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat :: Text, timeUnit timeUnit40,41
+intYear intYear43,44
+intYear intYear44,45
+timeField timeField46,47
+timeField timeField47,48
+data FieldType FieldType52,53
+data FieldType = StrField StrField52,53
+data FieldType = StrField | NumberField NumberField52,53
+data FieldType = StrField | NumberField | DateTimeField DateTimeField52,53
+data FieldType = StrField | NumberField | DateTimeField | YearField YearField52,53
+data FieldType = StrField | NumberField | DateTimeField | YearField | BooleanFieldBooleanField52,53
+data FieldValue FieldValue54,55
+  Str Str55,56
+  Number Number56,57
+  DateTime DateTime57,58
+  Year Year58,59
+  Boolean Boolean59,60
+  Str Str55,56
+  Number Number56,57
+  DateTime DateTime57,58
+  Year Year58,59
+  Boolean Boolean59,60
+itemFieldType itemFieldType61,62
+itemFieldType itemFieldType62,63
+data FieldIndex FieldIndex69,70
+  FieldIndex FieldIndex70,71
+data DataRows DataRows72,73
+  DataRows DataRows73,74
+toHvegaDataValue toHvegaDataValue77,78
+toHvegaDataValue toHvegaDataValue78,79
+hvegaDataType hvegaDataType85,86
+hvegaDataType hvegaDataType86,87
+hvegaParseList hvegaParseList90,91
+hvegaParseList hvegaParseList91,92
+toHvegaDataRow toHvegaDataRow96,97
+toHvegaDataRow toHvegaDataRow97,98
+toHvegaData toHvegaData102,103
+toHvegaData toHvegaData103,104
 
-./src/Visualization/Vegalite/StackedArea.hs,124
+./src/Visualization/VegaLite/StackedArea.hs,124
 module Visualization.VegaLite.StackedAreaVisualization.VegaLite.StackedArea3,4
 stackedAreaVsTime stackedAreaVsTime39,40
 
-./src/Visualization/Vegalite/ParameterPlot.hs,841
+./src/Visualization/VegaLite/ParameterPlot.hs,841
 module Visualization.VegaLite.ParameterPlotVisualization.VegaLite.ParameterPlot3,4
 data ParameterEstimate ParameterEstimate42,43
 data ParameterEstimate = ParameterEstimate ParameterEstimate42,43
