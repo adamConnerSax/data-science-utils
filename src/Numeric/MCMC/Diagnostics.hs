@@ -20,9 +20,11 @@ where
 import qualified Control.Foldl                 as FL
 import qualified Statistics.Types              as S
 import qualified Data.List                     as L
+--import qualified Data.Vector.Generic           as V
 import qualified Data.Vector.Unboxed           as VU
 import qualified Statistics.Test.MannWhitneyU  as S
 import qualified Numeric.LinearAlgebra         as LA
+
 
 data ExpectationSummary a = ExpectationSummary { mean :: a, confidence :: (a, a), rHat :: a } deriving (Show)
 -- all sub-chains should have same length here
@@ -40,7 +42,7 @@ summarize
   :: (RealFrac b, Ord b)
   => S.CL b -- ^ confidence interval to test
   -> (a -> b) -- ^ function to map a sample to a function under consideration
-  -> [[a]] -- ^ list of chains
+  -> [[a]] -- ^ list of chains 
   -> Maybe (ExpectationSummary b) -- ^ @Maybe@ here in case chains aren't long enough
 summarize confidence expectationF chains = do
   let applied    = fmap (fmap expectationF) chains

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: f762070e5e0b72fd7bbdb864fce201125675b767f17b9daaafa20f71e60807a0
+-- hash: 889c430683d45c4f836f7a269693a7883f3b6c9e4897e04f76ab22a36990f4c3
 
 name:                data-science-utils
 version:             0.1.0.0
@@ -44,7 +44,7 @@ library
     , declarative >=0.5.1.0 && <0.6.0.0
     , foldl >=1.4.5 && <1.5
     , hmatrix >=0.18.0.0 && <0.20.0.0
-    , hvega >=0.1.0 && <=0.2.0.0
+    , hvega >=0.4.0 && <=0.5
     , statistics >=0.15.0 && <0.16
     , text >=1.1.0.1 && <1.3.0.0
     , time >=1.8.0.1 && <1.10.0.0
