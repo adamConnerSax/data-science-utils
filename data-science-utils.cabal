@@ -4,10 +4,10 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 889c430683d45c4f836f7a269693a7883f3b6c9e4897e04f76ab22a36990f4c3
+-- hash: de57f7db67370d47e0a870a99d9c61ce85d5ee3ac34d536bc34e4752b8077895
 
 name:                data-science-utils
-version:             0.1.0.0
+version:             0.1.0.1
 synopsis:            Various utilities for data-science work.
 description:         Please see the README on GitHub at <https://github.com/adamConnerSax/data-science-utils#readme>
 homepage:            https://github.com/adamConnerSax/data-science-utils#readme
