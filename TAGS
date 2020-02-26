@@ -2,118 +2,35 @@
 ./Setup.hs,15
 main main1,2
 
-./src/Visualization/VegaLite/Common.hs,3436
-module Visualization.VegaLite.CommonVisualization.VegaLite.Common4,5
-data Scaling Scaling47,48
-data Scaling = Default Default47,48
-data Scaling = Default | DataMinMax DataMinMax47,48
-data ViewConfig ViewConfig49,50
-data ViewConfig = ViewConfig ViewConfig49,50
-data ViewConfig = ViewConfig { vcWidth vcWidth49,50
-data ViewConfig = ViewConfig { vcWidth :: Double, vcHeight vcHeight49,50
-data ViewConfig = ViewConfig { vcWidth :: Double, vcHeight :: Double, vcPadding vcPadding49,50
-viewConfigAsHvega viewConfigAsHvega51,52
-viewConfigAsHvega viewConfigAsHvega52,53
-data TimeEncoding TimeEncoding56,57
-data TimeEncoding a = TimeEncoding TimeEncoding56,57
-data TimeEncoding a = TimeEncoding { toStr toStr56,57
-data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat timeFormat56,57
-data TimeEncoding a = TimeEncoding { toStr :: a -> Text, timeFormat :: Text, timeUnit timeUnit56,57
-intYear intYear59,60
-intYear intYear60,61
-timeField timeField62,63
-timeField timeField63,64
-data FieldType FieldType68,69
-data FieldType = StrField StrField68,69
-data FieldType = StrField | CountField CountField68,69
-data FieldType = StrField | CountField | NumberField NumberField68,69
-data FieldType = StrField | CountField | NumberField | DateTimeField DateTimeField68,69
-data FieldType = StrField | CountField | NumberField | DateTimeField | IntYearField IntYearField68,69
-data FieldType = StrField | CountField | NumberField | DateTimeField | IntYearField | BooleanField BooleanField68,69
-data FieldValue FieldValue71,72
-  Str Str72,73
-  Count Count73,74
-  Number Number74,75
-  DateTime DateTime75,76
-  IntYear IntYear76,77
-  Boolean Boolean77,78
-  Str Str72,73
-  Count Count73,74
-  Number Number74,75
-  DateTime DateTime75,76
-  IntYear IntYear76,77
-  Boolean Boolean77,78
-data FieldIndex FieldIndex89,90
-  FieldIndex FieldIndex90,91
-labelAt labelAt92,93
-labelAt labelAt93,94
-fieldTypeAt fieldTypeAt95,96
-fieldTypeAt fieldTypeAt96,97
-indexFor indexFor98,99
-indexFor indexFor99,100
-changeLabel changeLabel101,102
-changeLabel changeLabel102,103
-fieldIndexFromLabeledTypes fieldIndexFromLabeledTypes109,110
-fieldIndexFromLabeledTypes fieldIndexFromLabeledTypes110,111
-data DataRows DataRows117,118
-  DataRows DataRows118,119
-checkLabels checkLabels120,121
-checkLabels checkLabels121,122
-data FieldLoader FieldLoader129,130
-data FieldLoader a = FieldLoader FieldLoader129,130
-data FieldLoader a = FieldLoader { flType flType129,130
-data FieldLoader a = FieldLoader { flType :: FieldType, fLoader fLoader129,130
-strLoader strLoader131,132
-strLoader strLoader132,133
-countLoader countLoader134,135
-countLoader countLoader135,136
-numLoader numLoader137,138
-numLoader numLoader138,139
-dateTimeLoader dateTimeLoader140,141
-dateTimeLoader dateTimeLoader141,142
-intYearLoader intYearLoader143,144
-intYearLoader intYearLoader144,145
-boolLoader boolLoader146,147
-boolLoader boolLoader147,148
-buildDataRows buildDataRows151,152
-toHvegaDataValue toHvegaDataValue161,162
-toHvegaDataValue toHvegaDataValue162,163
-hvegaDataType hvegaDataType170,171
-hvegaDataType hvegaDataType171,172
-hvegaParseList hvegaParseList175,176
-hvegaParseList hvegaParseList176,177
-toHvegaDataRow toHvegaDataRow181,182
-toHvegaDataRow toHvegaDataRow182,183
-toHvegaData toHvegaData187,188
-toHvegaData toHvegaData188,189
-
-./src/Visualization/VegaLite/StackedArea.hs,124
-module Visualization.VegaLite.StackedAreaVisualization.VegaLite.StackedArea3,4
-stackedAreaVsTime stackedAreaVsTime32,33
-
-./src/Visualization/VegaLite/ParameterPlot.hs,841
-module Visualization.VegaLite.ParameterPlotVisualization.VegaLite.ParameterPlot3,4
-data ParameterEstimate ParameterEstimate43,44
-data ParameterEstimate = ParameterEstimate ParameterEstimate43,44
-data ParameterEstimate = ParameterEstimate  { value value43,44
-data ParameterEstimate = ParameterEstimate  { value :: Double, confidence confidence43,44
-data NamedParameterEstimate NamedParameterEstimate44,45
-data NamedParameterEstimate = NamedParameterEstimate NamedParameterEstimate44,45
-data NamedParameterEstimate = NamedParameterEstimate { name name44,45
-data NamedParameterEstimate = NamedParameterEstimate { name :: Text, pEstimate pEstimate44,45
-parameterPlotVsTime parameterPlotVsTime58,59
-parameterPlot parameterPlot144,145
-parameterPlotMany parameterPlotMany155,156
-parameterPlotFlex parameterPlotFlex166,167
-
 ./src/Numeric/MCMC/Diagnostics.hs,548
 module Numeric.MCMC.DiagnosticsNumeric.MCMC.Diagnostics11,12
-data ExpectationSummary ExpectationSummary26,27
-data ExpectationSummary a = ExpectationSummary ExpectationSummary26,27
-data ExpectationSummary a = ExpectationSummary { mean mean26,27
-data ExpectationSummary a = ExpectationSummary { mean :: a, confidence confidence26,27
-data ExpectationSummary a = ExpectationSummary { mean :: a, confidence :: (a, a), rHat rHat26,27
-summarize summarize44,45
-mpsrf mpsrf65,66
-mpsrf mpsrf66,67
-mannWhitneyUTest mannWhitneyUTest106,107
+data ExpectationSummary ExpectationSummary28,29
+data ExpectationSummary a = ExpectationSummary ExpectationSummary28,29
+data ExpectationSummary a = ExpectationSummary { mean mean28,29
+data ExpectationSummary a = ExpectationSummary { mean :: a, confidence confidence28,29
+data ExpectationSummary a = ExpectationSummary { mean :: a, confidence :: (a, a), rHat rHat28,29
+summarize summarize46,47
+mpsrf mpsrf67,68
+mpsrf mpsrf68,69
+mannWhitneyUTest mannWhitneyUTest108,109
+
+./src/Control/DataCache.hs,518
+module Control.DataCache Control.DataCache5,6
+data Serialize Serialize14,15
+  Serialize Serialize15,16
+data DataCache DataCache18,19
+  Retrieve Retrieve19,20
+  Update Update20,21
+type DataCacheIO DataCacheIO22,23
+eitherThrow eitherThrow26,27
+eitherThrow eitherThrow27,28
+store store29,30
+store store30,31
+retrieve retrieve37,38
+clear clear41,42
+clear clear42,43
+exists exists44,45
+exists exists45,46
+data FileIO FileIO47,48
+  FileIO FileIO48,49
+runDataCacheIO runDataCacheIO59,60
