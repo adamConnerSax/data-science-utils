@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 737e9254a74f177d8fee32b10b90a3af8dcb8b6fd0f305c41360b3b5ef59fbf9
+-- hash: 4f94a1c87e0d65d58347c6d6c3b31753304908fe9f524fb3e8f157a838c7f90f
 
 name:                data-science-utils
 version:             0.1.0.1
@@ -34,6 +34,7 @@ flag dump-core
 
 library
   exposed-modules:
+      Numeric.Clustering.Perplexity
       Numeric.MCMC.Diagnostics
   other-modules:
       Paths_data_science_utils
@@ -42,9 +43,12 @@ library
     , base >=4.7 && <5
     , containers >=0.5.0.0 && <=0.7.0.0
     , declarative >=0.5.1.0 && <0.6.0.0
+    , exceptions >=0.10.3 && <0.11
     , foldl >=1.4.5 && <1.5
     , hmatrix >=0.18.0.0 && <0.20.0.0
+    , hmatrix-nlopt >=0.1.2 && <0.2
     , hvega >=0.4.0 && <0.6
+    , massiv >=0.5.4 && <0.6
     , statistics >=0.15.0 && <0.16
     , text >=1.1.0.1 && <1.3.0.0
     , time >=1.8.0.1 && <1.10.0.0

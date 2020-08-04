@@ -2,6 +2,19 @@
 ./Setup.hs,15
 main main1,2
 
+./src/Numeric/Clustering/Perplexity.hs,396
+module Numeric.Clustering.Perplexity Numeric.Clustering.Perplexity0,1
+pGivenBeta pGivenBeta9,10
+pGivenBeta pGivenBeta10,11
+entropy entropy16,17
+entropy entropy17,18
+findBeta findBeta19,20
+findBeta findBeta20,21
+data SolveException SolveException31,32
+data SolveException = SolveException SolveException31,32
+probabilities probabilities34,35
+probabilities probabilities35,36
+
 ./src/Numeric/MCMC/Diagnostics.hs,548
 module Numeric.MCMC.DiagnosticsNumeric.MCMC.Diagnostics11,12
 data ExpectationSummary ExpectationSummary28,29
@@ -13,24 +26,3 @@ summarize summarize46,47
 mpsrf mpsrf67,68
 mpsrf mpsrf68,69
 mannWhitneyUTest mannWhitneyUTest108,109
-
-./src/Control/DataCache.hs,518
-module Control.DataCache Control.DataCache5,6
-data Serialize Serialize14,15
-  Serialize Serialize15,16
-data DataCache DataCache18,19
-  Retrieve Retrieve19,20
-  Update Update20,21
-type DataCacheIO DataCacheIO22,23
-eitherThrow eitherThrow26,27
-eitherThrow eitherThrow27,28
-store store29,30
-store store30,31
-retrieve retrieve37,38
-clear clear41,42
-clear clear42,43
-exists exists44,45
-exists exists45,46
-data FileIO FileIO47,48
-  FileIO FileIO48,49
-runDataCacheIO runDataCacheIO59,60
