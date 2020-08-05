@@ -7,21 +7,21 @@ import qualified Control.Monad.Catch as X
 import qualified Data.Text as Text
 
 
-pGivenBeta :: MA.Ix1 -> MA.Vector MA.U Double -> Double -> MA.Vector MA.D Double
+pGivenBeta :: MA.Source r MA.Ix1 Double => MA.Ix1 -> MA.Vector r Double -> Double -> MA.Vector MA.D Double
 pGivenBeta rowIndex distances beta =
   let scale ci d = if (ci == rowIndex) then 0 else exp (-d * beta)
       raw = MA.imap scale distances
       sumRaw = MA.sum raw
   in raw MA..* (1 / sumRaw)
 
-entropy :: MA.Vector MA.U Double -> MA.Ix1 -> Double -> Double
+entropy :: MA.Source r MA.Ix1 Double => MA.Vector r Double -> MA.Ix1 -> Double -> Double
 entropy distances rowIndex beta = MA.sum $ MA.map (\x -> -x * log x) $ pGivenBeta rowIndex distances beta 
 
-findBeta :: Double -> MA.Ix1 -> MA.Vector MA.U Double -> Either NLOPT.Result NLOPT.Solution
+findBeta :: MA.Source r MA.Ix1 Double => Double -> MA.Ix1 -> MA.Vector r Double -> Either NLOPT.Result NLOPT.Solution
 findBeta perplexity rowIndex distances =
   let targetEntropy = log perplexity
       obj x = targetEntropy - entropy distances rowIndex (x `LA.atIndex` 0)
-      algo = NLOPT.NEWUOA obj Nothing
+      algo = NLOPT.NELDERMEAD obj [] Nothing
       stopWhenAny = NLOPT.ObjectiveAbsoluteTolerance 1e-4 NLOPT.:|
                     [NLOPT.MaximumEvaluations 50
                     ]
@@ -34,8 +34,8 @@ instance X.Exception SolveException
      
 probabilities :: MA.MonadThrow m => Double -> MA.Matrix MA.U Double -> m (MA.Matrix MA.U Double)
 probabilities perplexity distances = do
-  let distanceRows = MA.outerSlices distances
-      betaSolsE :: Either NLOPT.Result (MA.Vector MA.D Double) 
+  let distanceRows = MA.computeAs MA.B $ MA.outerSlices distances
+      betaSolsE :: Either NLOPT.Result (MA.Vector MA.U Double) 
       betaSolsE = MA.itraverseA (\ix v -> fmap ((`LA.atIndex` 0) . NLOPT.solutionParams) $ findBeta perplexity ix v) distanceRows
   betas <- case betaSolsE of
     Left res -> X.throwM (SolveException $ Text.pack $ show res)
