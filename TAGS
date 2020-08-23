@@ -2,18 +2,20 @@
 ./Setup.hs,15
 main main1,2
 
-./src/Numeric/Clustering/Perplexity.hs,396
-module Numeric.Clustering.Perplexity Numeric.Clustering.Perplexity0,1
-pGivenBeta pGivenBeta9,10
+./src/Numeric/Clustering/Perplexity.hs,455
+module Numeric.Clustering.Perplexity Numeric.Clustering.Perplexity1,2
 pGivenBeta pGivenBeta10,11
-entropy entropy16,17
-entropy entropy17,18
-findBeta findBeta19,20
-findBeta findBeta20,21
-data SolveException SolveException31,32
-data SolveException = SolveException SolveException31,32
-probabilities probabilities34,35
-probabilities probabilities35,36
+pGivenBeta pGivenBeta11,12
+safe_xLogx safe_xLogx17,18
+safe_xLogx safe_xLogx18,19
+entropy entropy20,21
+entropy entropy21,22
+findBeta findBeta23,24
+findBeta findBeta24,25
+data SolveException SolveException44,45
+data SolveException = SolveException SolveException44,45
+probabilities probabilities47,48
+probabilities probabilities48,49
 
 ./src/Numeric/MCMC/Diagnostics.hs,548
 module Numeric.MCMC.DiagnosticsNumeric.MCMC.Diagnostics11,12
