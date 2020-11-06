@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4f94a1c87e0d65d58347c6d6c3b31753304908fe9f524fb3e8f157a838c7f90f
+-- hash: 674ac951ce854bebd78d708edd801382a51397bda3c452a0b6d8076cd71ea3b7
 
 name:                data-science-utils
 version:             0.1.0.1
@@ -35,6 +35,7 @@ flag dump-core
 library
   exposed-modules:
       Numeric.Clustering.Perplexity
+      Numeric.Foldl
       Numeric.MCMC.Diagnostics
   other-modules:
       Paths_data_science_utils

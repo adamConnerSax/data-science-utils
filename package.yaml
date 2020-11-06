@@ -23,7 +23,7 @@ dependencies:
 - exceptions >= 0.10.3 && < 0.11
 - foldl >= 1.4.5 && < 1.5
 - hmatrix >= 0.18.0.0 && < 0.20.0.0
-- hvega >= 0.4.0 && < 0.6
+- hvega >= 0.4.0 && < 0.11
 - massiv >= 0.5.4 && < 0.6
 - hmatrix-nlopt >= 0.1.2 && < 0.2
 - statistics >= 0.15.0 && <0.16

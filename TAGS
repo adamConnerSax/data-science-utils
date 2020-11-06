@@ -17,6 +17,17 @@ data SolveException = SolveException SolveException44,45
 probabilities probabilities47,48
 probabilities probabilities48,49
 
+./src/Numeric/Foldl.hs,316
+module Numeric.Foldl Numeric.Foldl1,2
+sumWithWeightsF sumWithWeightsF6,7
+sumWithWeightsF sumWithWeightsF8,9
+wgtdSumF wgtdSumF11,12
+wgtdSumF wgtdSumF13,14
+weightedMedian weightedMedian16,17
+weightedMedian weightedMedian17,18
+weightedMedianF weightedMedianF28,29
+weightedMedianF weightedMedianF29,30
+
 ./src/Numeric/MCMC/Diagnostics.hs,548
 module Numeric.MCMC.DiagnosticsNumeric.MCMC.Diagnostics11,12
 data ExpectationSummary ExpectationSummary28,29
