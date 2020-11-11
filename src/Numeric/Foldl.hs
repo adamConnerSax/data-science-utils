@@ -11,7 +11,7 @@ sumWithWeightsF wgt sumOf = FL.premap (\a -> realToFrac (wgt a) * realToFrac (su
 
 wgtdSumF :: (RealFrac b, RealFrac c)
               => (a -> b) -> (a -> c) -> FL.Fold a c
-wgtdSumF wgt sumOf = (/) <$> wgtdSumF wgt sumOf <*> fmap realToFrac (FL.premap wgt FL.sum)
+wgtdSumF wgt sumOf = (/) <$> sumWithWeightsF wgt sumOf <*> fmap realToFrac (FL.premap wgt FL.sum)
 {-# INLINE wgtdSumF #-}
 
 weightedMedian :: forall a.(Ord a) => a -> [(Double, a)] -> a
