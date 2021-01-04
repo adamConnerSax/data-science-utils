@@ -4,8 +4,8 @@ module Numeric.Foldl where
 import qualified Control.Foldl as FL
 import qualified Data.List as L
 
-sumWithWeightsF :: (Real b, Real c)
-                => (a -> b) -> (a -> c) -> FL.Fold a Double
+sumWithWeightsF :: (Real b, RealFrac c)
+                => (a -> b) -> (a -> c) -> FL.Fold a c
 sumWithWeightsF wgt sumOf = FL.premap (\a -> realToFrac (wgt a) * realToFrac (sumOf a)) FL.sum
 {-# INLINE sumWithWeightsF #-}
 
@@ -17,7 +17,7 @@ wgtdSumF wgt sumOf = (/) <$> sumWithWeightsF wgt sumOf <*> fmap realToFrac (FL.p
 weightedMedian :: forall a.(Ord a) => a -> [(Double, a)] -> a
 weightedMedian dfltA l =
   let ordered :: [(Double, a)] = L.sortOn snd l
-      middleWeight :: Double = (FL.fold (FL.premap fst FL.sum) l) / 2
+      middleWeight :: Double = FL.fold (FL.premap fst FL.sum) l / 2
       update :: (Double, a) -> (Double, a) -> ((Double, a), ())
       update (wgtSoFar, medianSoFar) (w, x) = ((wgtSoFar + w, newMedian), ()) where
         newMedian = if wgtSoFar <= middleWeight then x else medianSoFar
@@ -27,5 +27,5 @@ weightedMedian dfltA l =
 {-# INLINE weightedMedian #-}
 
 weightedMedianF :: (Num b, Ord b) => (a -> Double) -> (a -> b) -> FL.Fold a b
-weightedMedianF wgt median = fmap (weightedMedian 0) $ FL.premap (\a -> (wgt a, median a)) FL.list
+weightedMedianF wgt median = weightedMedian 0 <$> FL.premap (wgt &&& median) FL.list
 {-# INLINE weightedMedianF #-}

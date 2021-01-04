@@ -42,27 +42,27 @@ summarize
   :: (RealFrac b, Ord b)
   => S.CL b -- ^ confidence interval to test
   -> (a -> b) -- ^ function to map a sample to a function under consideration
-  -> [[a]] -- ^ list of chains 
+  -> [[a]] -- ^ list of chains
   -> Maybe (ExpectationSummary b) -- ^ @Maybe@ here in case chains aren't long enough
-summarize confidence expectationF chains = do
+summarize confidence' expectationF chains = do
   let applied    = fmap (fmap expectationF) chains
       allApplied = concat applied
       chainInterval :: Ord b => [b] -> Maybe (b, b)
       chainInterval c =
         let n  = L.length c
-            n' = round (realToFrac n * S.confidenceLevel confidence)
+            n' = round (realToFrac n * S.confidenceLevel confidence')
             d  = (n - n') `div` 2
             c' = L.take n' $ L.drop d $ L.sort c
-        in  if length c' >= 2 then Just (head c', last c') else Nothing
+        in if length c' >= 2 then (head &&& last) <$> nonEmpty c' else Nothing
 --      intervalLength (a, b) = b - a
   intervals <- traverse chainInterval applied
   (lo, hi)  <- chainInterval allApplied
   let (mLo, mHi) = FL.fold
         ((,) <$> FL.premap fst FL.mean <*> FL.premap snd FL.mean)
         intervals
-  let rHat = (hi - lo) / (mHi - mLo)
-      mean = FL.fold FL.mean allApplied
-  return $ ExpectationSummary mean (lo, hi) rHat
+  let rHat' = (hi - lo) / (mHi - mLo)
+      mean' = FL.fold FL.mean allApplied
+  return $ ExpectationSummary mean' (lo, hi) rHat'
 
 -- if the chain list is empty or chains have different sizes, etc. we return Nothing
 mpsrf :: [a -> Double] -> [[a]] -> Maybe Double
@@ -70,26 +70,25 @@ mpsrf expectations chains = do
   let --mkVec :: a -> LA.Vector Double
       mkVec x = LA.fromList $ fmap ($ x) expectations
       m = length chains
-  n <- if (m > 0) then Just (length $ head chains) else Nothing
-  _ <- traverse (\c -> if length c == n then Just () else Nothing) chains -- check that all chains are length n
+  n <- length . head <$> nonEmpty chains --if m > 0 then Just (length $ head chains) else Nothing
+  traverse_ (\c -> if length c == n then Just () else Nothing) chains -- check that all chains are length n
   let
     sumVecsF = FL.Fold (+) (LA.vector $ L.replicate (length expectations) 0) id
     sumMatsF = FL.Fold (+) (LA.scale 0 $ LA.ident (length expectations)) id
     meanVecsF =
-      (\m l -> LA.scale (1 / realToFrac l) m) <$> sumVecsF <*> FL.length
+      (\m' l -> LA.scale (1 / realToFrac l) m') <$> sumVecsF <*> FL.length
     avgVec     = FL.fold meanVecsF
     phiChains  = fmap (fmap mkVec) chains
     avgPhiEach = fmap avgVec phiChains
     diffProd :: LA.Vector Double -> LA.Vector Double -> LA.Matrix Double
     diffProd x y = (x - y) `LA.outer` (x - y)
-    w1 = fmap (\(ap, ps) -> fmap (\p -> diffProd p ap) ps)
-      $ zip avgPhiEach phiChains -- [[(p - ap)(p - ap)']]
+    w1 = (\(ap, ps) -> (`diffProd` ap) <$> ps) <$> zip avgPhiEach phiChains
     w =
       LA.scale (1 / (realToFrac m * realToFrac (n - 1)))
         $ FL.fold sumMatsF
         $ fmap (FL.fold sumMatsF) w1
     avgPhiAll = avgVec avgPhiEach
-    b1        = fmap (\p -> diffProd p avgPhiAll) avgPhiEach
+    b1        = fmap (`diffProd` avgPhiAll) avgPhiEach
     b = LA.scale (realToFrac n / realToFrac (m - 1)) $ FL.fold sumMatsF b1
     mat       = LA.scale (1 / realToFrac n) $ LA.inv w LA.<> b
     eigen1    = LA.eigenvaluesSH (LA.trustSym mat) `LA.atIndex` 0

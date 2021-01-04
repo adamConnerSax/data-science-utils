@@ -1,4 +1,4 @@
-packages: ./ 
+packages: ./
 
 
 source-repository-package
@@ -7,5 +7,7 @@ source-repository-package
   tag: a2e8c1933607ae15201d344617bab1d54e2f6175
   subdir: massiv
 
-                  
-                  
+source-repository-package
+  type: git
+  location: https://github.com/ocramz/heidi
+  tag: 172e4337a1f730c038ba10f48ea6bb3aa8acbf1f

@@ -6,7 +6,7 @@ import qualified Numeric.NLOPT as NLOPT
 import qualified Numeric.LinearAlgebra as LA
 import qualified Control.Monad.Catch as X
 import qualified Data.Text as Text
-
+import Numeric (log)
 
 pGivenBeta :: MA.Source r MA.Ix1 Double => MA.Ix1 -> MA.Vector r Double -> Double -> MA.Vector MA.D Double
 pGivenBeta rowIndex distances beta =
@@ -19,7 +19,7 @@ safe_xLogx :: Double -> Double
 safe_xLogx x = if x > 1e-7 then x * log x else 0
 
 entropy :: MA.Source r MA.Ix1 Double => MA.Vector r Double -> MA.Ix1 -> Double -> Double
-entropy distances rowIndex beta = MA.sum $ MA.map (\x -> negate $ safe_xLogx x) $ pGivenBeta rowIndex distances beta 
+entropy distances rowIndex beta = MA.sum $ MA.map (\x -> negate $ safe_xLogx x) $ pGivenBeta rowIndex distances beta
 
 findBeta :: MA.Source r MA.Ix1 Double => Double -> MA.Ix1 -> MA.Vector r Double -> Either Text.Text Double
 findBeta perplexity rowIndex distances =
@@ -41,17 +41,16 @@ findBeta perplexity rowIndex distances =
     Right s -> case NLOPT.solutionResult s of
       NLOPT.FTOL_REACHED -> Right $ (`LA.atIndex` 0) $ NLOPT.solutionParams s
       _ -> Left $ textError s
-  
+
 data SolveException = SolveException Text.Text deriving (Show)
 instance X.Exception SolveException
-     
+
 probabilities :: MA.MonadThrow m => Double -> MA.Matrix MA.U Double -> m (MA.Matrix MA.U Double)
 probabilities perplexity distances = do
   let distanceRows = MA.computeAs MA.B $ MA.outerSlices distances
-      betaSolsE :: Either Text.Text (MA.Vector MA.U Double) 
-      betaSolsE = MA.itraverseA (\ix v -> findBeta perplexity ix v) distanceRows   
+      betaSolsE :: Either Text.Text (MA.Vector MA.U Double)
+      betaSolsE = MA.itraverseA (\ix v -> findBeta perplexity ix v) distanceRows
   betas <- case betaSolsE of
     Left err -> X.throwM (SolveException err)
-    Right x -> return x    
+    Right x -> return x
   fmap MA.compute $ MA.stackOuterSlicesM $ MA.izipWith pGivenBeta distanceRows betas
-  
