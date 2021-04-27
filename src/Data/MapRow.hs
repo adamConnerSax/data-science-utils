@@ -32,6 +32,15 @@ withNames names values = fmap Map.fromList namedValues
             )
 
 
+
+changeColNameInRow :: Text -> Text -> MapRow a -> Either Text (MapRow a)
+changeColNameInRow old new row = case Map.lookup old row of
+  Nothing -> Left $ "\"" <> old <> "\" not found in row with colNames " <> show (Map.keys row)
+  Just a -> Right $ Map.insert new a $ Map.delete old row
+
+changeColName :: Traversable f => Text -> Text -> f (MapRow a) -> Either Text (f (MapRow a))
+changeColName old new = traverse (changeColNameInRow old new)
+
 type VLDataField = (GV.FieldName, GV.DataValue)
 
 toVLDataFields :: (a -> GV.DataValue) -> MapRow a -> [VLDataField]
