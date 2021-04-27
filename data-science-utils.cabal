@@ -43,19 +43,19 @@ library
   build-depends:
       array >=0.4.0.1 && <=0.6.0.0
     , base >=4.7 && <5
-    , containers >=0.5.0.0 && <=0.7.0.0
-    , declarative >=0.5.1.0 && <0.6.0.0
+    , containers >=0.5.0.0 && <0.7
+    , declarative >=0.5.1.0 && <0.6
     , exceptions >=0.10.3 && <0.11
     , foldl >=1.4.5 && <1.5
-    , hmatrix >=0.18.0.0 && <0.20.0.0
+    , hmatrix >=0.18.0.0 && <0.21
     , hmatrix-nlopt >=0.1.2 && <0.2
-    , hvega >=0.4.0 && <0.11
-    , massiv >=0.5.4 && <0.6
-    , relude >=0.7.0 && < 0.8
+    , hvega >=0.4.0 && <0.12
+    , massiv >=0.5.4 && <0.7
+    , relude >=1.0.0 && < 1.1
     , statistics >=0.15.0 && <0.16
     , text >=1.1.0.1 && <1.3.0.0
-    , time >=1.8.0.1 && <1.10.0.0
-    , vector >=0.12.0.1 && <=0.13.0.0
+    , time >=1.8.0.1 && <1.12
+    , vector >=0.12.0.1 && < 0.13
   mixins:  base hiding (Prelude)
          , relude (Relude as Prelude
          , Relude.Extra)
