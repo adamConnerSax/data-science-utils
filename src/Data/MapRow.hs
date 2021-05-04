@@ -7,7 +7,9 @@ module Data.MapRow where
 
 import Prelude hiding (fromList, toList)
 import qualified Control.Foldl as Foldl
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
+import qualified Data.Map.Merge.Strict as Map
+
 import qualified Graphics.Vega.VegaLite as GV
 
 type MapRow a = Map Text a
@@ -31,8 +33,6 @@ withNames names values = fmap Map.fromList namedValues
                 <> ") have different lengths in nameRow."
             )
 
-
-
 changeColNameInRow :: Text -> Text -> MapRow a -> Either Text (MapRow a)
 changeColNameInRow old new row = case Map.lookup old row of
   Nothing -> Left $ "\"" <> old <> "\" not found in row with colNames " <> show (Map.keys row)
@@ -40,6 +40,18 @@ changeColNameInRow old new row = case Map.lookup old row of
 
 changeColName :: Traversable f => Text -> Text -> f (MapRow a) -> Either Text (f (MapRow a))
 changeColName old new = traverse (changeColNameInRow old new)
+
+keyedMapRows :: (Foldable f, Ord k) => (a -> k) -> Text -> f (MapRow a) -> Either Text (Map k (MapRow a))
+keyedMapRows toKey colName = Foldl.foldM (Foldl.premapM getKeyValueM $ Foldl.generalize Foldl.map)  where
+  getKeyValueM mr = do
+    rowA <- maybe (Left $ "Failed to find key column in keyedMapRows") Right $ Map.lookup colName mr
+    return (toKey rowA, mr)
+
+-- result is only rows which have cols in both collections
+joinKeyedMapRows :: Ord k => Map k (MapRow a) -> Map k (MapRow a) -> Map k (MapRow a)
+joinKeyedMapRows = Map.merge Map.dropMissing Map.dropMissing (Map.zipWithMaybeMatched f)  where
+  f _ mrA mrB = Just $ mrA <> mrB
+
 
 type VLDataField = (GV.FieldName, GV.DataValue)
 

@@ -16,8 +16,14 @@ wgtdSumF wgt sumOf = (/) <$> sumWithWeightsF wgt sumOf <*> fmap realToFrac (FL.p
 {-# INLINE wgtdSumF #-}
 
 data StrictPair a = StrictPair !Double !a
+
+getFst :: StrictPair a -> Double
 getFst (StrictPair x _) = x
+{-# INLINE getFst #-}
+
+getSnd :: StrictPair a -> a
 getSnd (StrictPair _ a) = a
+{-# INLINE getSnd #-}
 
 weightedMedian :: forall a.(Ord a) => a -> [StrictPair a] -> a
 weightedMedian dfltA !l =
