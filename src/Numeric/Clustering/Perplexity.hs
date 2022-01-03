@@ -8,7 +8,7 @@ import qualified Control.Monad.Catch as X
 import qualified Data.Text as Text
 import Numeric (log)
 
-pGivenBeta :: MA.Source r MA.Ix1 Double => MA.Ix1 -> MA.Vector r Double -> Double -> MA.Vector MA.D Double
+pGivenBeta :: MA.Source r Double => MA.Ix1 -> MA.Vector r Double -> Double -> MA.Vector MA.D Double
 pGivenBeta rowIndex distances beta =
   let scale ci d = if (ci == rowIndex) then 0 else exp (-d * beta)
       raw = MA.imap scale distances
@@ -18,10 +18,10 @@ pGivenBeta rowIndex distances beta =
 safe_xLogx :: Double -> Double
 safe_xLogx x = if x > 1e-7 then x * log x else 0
 
-entropy :: MA.Source r MA.Ix1 Double => MA.Vector r Double -> MA.Ix1 -> Double -> Double
+entropy :: MA.Source r Double => MA.Vector r Double -> MA.Ix1 -> Double -> Double
 entropy distances rowIndex beta = MA.sum $ MA.map (\x -> negate $ safe_xLogx x) $ pGivenBeta rowIndex distances beta
 
-findBeta :: MA.Source r MA.Ix1 Double => Double -> MA.Ix1 -> MA.Vector r Double -> Either Text.Text Double
+findBeta :: MA.Source r Double => Double -> MA.Ix1 -> MA.Vector r Double -> Either Text.Text Double
 findBeta perplexity rowIndex distances =
   let targetEntropy = log perplexity
       obj x = abs (targetEntropy - entropy distances rowIndex (x `LA.atIndex` 0))
