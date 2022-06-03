@@ -49,7 +49,7 @@ library
     , foldl >=1.4.5 && <1.5
     , hmatrix >=0.18.0.0 && <0.21
     , hmatrix-nlopt >=0.1.2 && <0.2
-    , hvega >=0.4.0 && <0.12
+    , hvega >=0.4.0 && <0.15
     , massiv >=1.0 && <1.1
     , relude >=1.0.0 && < 1.1
     , statistics >=0.15.0 && <0.16
