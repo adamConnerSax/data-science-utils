@@ -1,1 +1,3 @@
 packages: ./
+package hmatrix-glpk
+  extra-include-dirs: /opt/homebrew/include

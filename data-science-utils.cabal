@@ -38,8 +38,10 @@ library
       Numeric.Clustering.Perplexity
       Numeric.Foldl
       Numeric.MCMC.Diagnostics
+      Numeric.ActiveSet
   other-modules:
       Paths_data_science_utils
+
   build-depends:
       array >=0.4.0.1 && <=0.6.0.0
     , base >=4.7 && <5
