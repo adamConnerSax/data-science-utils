@@ -7,7 +7,7 @@ cabal-version: 2.2
 -- hash: 674ac951ce854bebd78d708edd801382a51397bda3c452a0b6d8076cd71ea3b7
 
 name:                data-science-utils
-version:             0.1.0.1
+version:             0.2.0.0
 synopsis:            Various utilities for data-science work.
 description:         Please see the README on GitHub at <https://github.com/adamConnerSax/data-science-utils#readme>
 homepage:            https://github.com/adamConnerSax/data-science-utils#readme
