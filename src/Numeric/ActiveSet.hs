@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Numeric.ActiveSet where
 
@@ -30,33 +31,23 @@ data ActiveSetConfiguration =
   , asMaxIters :: Int
   }
 
-defaultConfig :: ActiveSetConfiguration
-defaultConfig = ActiveSetConfiguration SolveLS 1e-15 1000
+defaultActiveSetConfig :: ActiveSetConfiguration
+defaultActiveSetConfig = ActiveSetConfiguration SolveLS 1e-15 1000
 
-findOptimal :: ActiveSetConfiguration
-            -> LA.Matrix Double
-            -> LA.Vector Double
-            -> EqualityConstraints
-            -> InequalityConstraints
-            -> LA.Vector Double
-            -> Either Text (LA.Vector Double)
-findOptimal config a b ec ic' x = do
-  let ic = convertInequalityConstraints ic'
-  _ <- if isFeasible (asEpsilon config) ec ic x then Right () else Left "ActiveSet.findOptimal: Given guess is not a feasible solution!"
-  let initialWorkingSet = getWorkingSet (asEpsilon config) ic x
-      go _ (OptimalFound x') = Right x'
-      go _ (StepError msg) = Left $ "ActiveSet.findOptimal: " <> msg
-      go n (NotOptimal ws x') = if n < (asMaxIters config)
-                                then go (n + 1) $ activeSetStep config a b ws ec ic x'
-                                else Left $ "ActiveSet.findOptimal: maxIters reached: x=" <> show x'
-  go 0 $ NotOptimal initialWorkingSet x
+findOptimalLH :: ActiveSetConfiguration
+              -> LA.Matrix Double
+              -> LA.Vector Double
+              -> EqualityConstraints
+              -> InequalityConstraints
+              -> LA.Vector Double
+              -> Either Text (LA.Vector Double)
+findOptimalLH = findOptimal (StepType lhInitial lhActiveSetStep)
 
-  -- trace ("initial working set is" <> show initialWorkingSet) $ go 0 $ NotOptimal initialWorkingSet x
+lhInitial :: InitialNonOptimal WorkingSet
+lhInitial config _ _ _ ic x = let iws =  getWorkingSet (asEpsilon config) ic x in NotOptimal $ WorkingData 0 x iws
 
-data StepResult = OptimalFound (LA.Vector Double) | NotOptimal WorkingSet (LA.Vector Double) | StepError Text deriving stock (Show)
-
-activeSetStep :: ActiveSetConfiguration -> LA.Matrix Double -> LA.Vector Double -> WorkingSet -> EqualityConstraints -> IC -> LA.Vector Double -> StepResult
-activeSetStep config a b ws ec@(EqualityConstraints g h) ic x =
+lhActiveSetStep :: StepFunction WorkingSet
+lhActiveSetStep config a b ec@(EqualityConstraints g h) ic (WorkingData iter x ws) =
   let  (IC c' d') = workingSetConstraints ws ic
        fullC = g === c'
        fullD = VS.concat [h, d']
@@ -64,16 +55,68 @@ activeSetStep config a b ws ec@(EqualityConstraints g h) ic x =
        (x', allL) = equalityConstrained (asSolver config) a b fullC fullD
   in if isFeasible (asEpsilon config) ec ic x'
      then if Nothing == VS.find (> 0) (VS.drop numEC allL)
-          then OptimalFound x'
+          then OptimalFound iter x'
           else case largestLambdaIndex ws (VS.drop numEC allL) of
-                 Nothing -> StepError "Some lambda is positive but there was an error finding the index of it."
-                 Just n -> {- trace ("Removing " <> show n <> " from working set and x'=" <> show x') $-} NotOptimal (removeFromWorkingSet n ws) x'
+                 Nothing -> StepError iter "Some lambda is positive but there was an error finding the index of it."
+                 Just n -> {- trace ("Removing " <> show n <> " from working set and x'=" <> show x') $-}
+                   NotOptimal
+                   $ WorkingData (iter + 1) x' (removeFromWorkingSet n ws)
      else
        let u = x' - x
        in case maxAlpha ic x u of
-            Nothing -> StepError "New x is not feasible but there was an error finding alpha such that x + alpha u is."
+            Nothing -> StepError iter "New x is not feasible but there was an error finding alpha such that x + alpha u is."
             Just (alpha, n) ->  let x'' = (x + VS.map (* alpha) u)
-                                in {- trace ("Adding " <> show n <> " to working set and x'=" <> show x'') $ -} NotOptimal (addToWorkingSet n ws) x''
+                                in {- trace ("Adding " <> show n <> " to working set and x'=" <> show x'') $ -}
+                                  NotOptimal $ WorkingData (iter + 1) x'' (addToWorkingSet n ws)
+
+findOptimal :: StepType a
+            -> ActiveSetConfiguration
+            -> LA.Matrix Double
+            -> LA.Vector Double
+            -> EqualityConstraints
+            -> InequalityConstraints
+            -> LA.Vector Double
+            -> Either Text (LA.Vector Double)
+findOptimal step config a b ec@(EqualityConstraints g h) ic' x = do
+  let ic@(IC c d) = convertInequalityConstraints ic'
+  _<- checkDimensions a b ec ic x
+  _ <- if isFeasible (asEpsilon config) ec ic x then Right ()
+       else Left
+            $ "ActiveSet.findOptimal: Given guess is not a feasible solution!"
+            <> "Gx - h = " <> show ((g #> x) - h)
+            <> "Cx - d = " <> show ((c #> x) - d)
+  let go (OptimalFound _ x') = Right x'
+      go (StepError iter msg) = Left $ "ActiveSet.findOptimal (after " <> show iter <> " steps): " <> msg
+      go (NotOptimal wd) = if iters wd < asMaxIters config
+                           then go $ (stepFunction step) config a b ec ic wd
+                           else Left $ "ActiveSet.findOptimal: maxIters (" <> show (iters wd) <> ") reached: x=" <> show (curX wd)
+  go $ (stepInitial step) config a b ec ic x
+  -- trace ("initial working set is" <> show initialWorkingSet) $ go 0 $ NotOptimal initialWorkingSet x
+
+data WorkingData a = WorkingData { iters:: !Int, curX :: !(LA.Vector Double), stepData :: !a} deriving stock (Show)
+-- a carries algorithm dependent extra data for next step
+data StepResult a = OptimalFound Int (LA.Vector Double) | NotOptimal (WorkingData a) | StepError Int Text deriving stock (Show)
+
+data StepType a = StepType { stepInitial :: InitialNonOptimal a, stepFunction :: StepFunction a}
+
+
+type InitialNonOptimal a =  (ActiveSetConfiguration
+                            -> LA.Matrix Double
+                            -> LA.Vector Double
+                            -> EqualityConstraints
+                            -> IC
+                            -> LA.Vector Double
+                            -> StepResult a
+                            )
+
+type StepFunction a = (ActiveSetConfiguration
+                      -> LA.Matrix Double
+                      -> LA.Vector Double
+                      -> EqualityConstraints
+                      -> IC
+                      -> WorkingData a
+                      -> StepResult a
+                      )
 
 data InequalityConstraints where
   SimpleBounds :: LA.Vector Double -> LA.Vector Double -> InequalityConstraints
@@ -102,8 +145,8 @@ convertInequalityConstraints (MatrixLower a b) = IC a b
 
 isFeasible :: Double -> EqualityConstraints -> IC -> LA.Vector Double -> Bool
 isFeasible eps (EqualityConstraints g h) (IC c d) x =  eV && iV where
-  eV = (VS.find ((> eps) . abs) $ g #> x - h) == Nothing
-  iV = (VS.find ((< -eps)) $ c #> x - d) == Nothing
+  eV = (VS.find ((> eps) . abs) $ (g #> x) - h) == Nothing
+  iV = (VS.find ((< negate eps)) $ (c #> x) - d) == Nothing
 
 newtype WorkingSet = WorkingSet { workingSet :: Set Int} deriving stock (Show)
 
@@ -180,3 +223,37 @@ maxAlpha (IC a b) x p = result where
                                    else 1
                                  else -1) (a #> x) (a #> p) b
   result = fmap (\(a', b') -> (b', a')) $ viaNonEmpty head $ L.sortOn snd $ filter ((> 0) . snd) $ zip [(0 :: Int)..] $ VS.toList rs
+
+
+checkDimensions :: LA.Matrix Double
+                -> LA.Vector Double
+                -> EqualityConstraints
+                -> IC
+                -> LA.Vector Double
+                -> Either Text ()
+checkDimensions a b (EqualityConstraints g h) (IC c d) x = do
+  let (aRows, aCols) = LA.size a
+      bRows = LA.size b
+  _ <- if bRows /= aRows
+       then Left ("target vector b is different length (" <> show bRows <> ") than A has rows (" <> show aRows <> ")")
+       else Right ()
+  let (gRows, gCols) = LA.size g
+      hRows = LA.size h
+  _ <- if gCols /= aCols
+       then Left ("Equality constraint matrix G has different number of cols (" <> show gCols <> ") than A has cols (" <> show aCols <> ")")
+       else Right ()
+  _ <- if gRows /= hRows
+       then Left ("Equality constraint matrix G has different number of rows (" <> show gRows <> ") than constraint RHS has cols (" <> show hRows <> ")")
+       else Right ()
+  let (cRows, cCols) = LA.size c
+      dRows = LA.size d
+  _ <- if cCols /= aCols
+       then Left ("Inequality constraint matrix C has different number of cols (" <> show cCols <> ") than A has cols (" <> show aCols <> ")")
+       else Right ()
+  _ <- if cRows /= dRows
+       then Left ("Inequality constraint matrix C has different number of rows (" <> show cRows <> ") than constraint RHS has cols (" <> show dRows <> ")")
+       else Right ()
+  let xRows = LA.size x
+  if xRows /= aCols
+    then Left ("guess vector x is different length (" <> show xRows <> ") than A has cols (" <> show aCols <> ")")
+    else Right ()
