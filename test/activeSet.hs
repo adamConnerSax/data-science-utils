@@ -5,11 +5,14 @@ import Numeric.ActiveSet
 main :: IO ()
 main = do
   let a = LA.matrix 3 [1, 1, 0, 0, 1, 1, 1, 0, 1]
-      b = LA.vector [1, 1, -1]
+      b = LA.vector [1, 2, -1]
       config = ActiveSetConfiguration SolveLS 1e-15 10 putTextLn
   result <- optimalNNLS config a b
   putTextLn $ show $ result
-
+  let a2 = LA.matrix 3 [40, 90, -120, 30, 120, -90]
+      b2 = LA.vector [67.5, 60]
+  result2 <- optimalNNLS config a2 b2
+  putTextLn $ show $ result2
 
 
 {-      cp = LA.ident 3

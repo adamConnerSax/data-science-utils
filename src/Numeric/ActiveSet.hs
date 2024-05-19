@@ -13,6 +13,7 @@ import qualified Data.IntSet as IS
 import qualified Data.Vector.Storable as VS
 import qualified Control.Foldl as FL
 import qualified Data.List as L
+import qualified Control.Error as X
 --import Debug.Trace (trace)
 
 -- after Chen & Ye: https://arxiv.org/pdf/1101.6081
@@ -101,58 +102,72 @@ data NNLSStep a = NNLS_Optimal Int (LA.Vector Double)
                 | NNLS_Continue a
 
 data NNLS_LHContinue = LH_NewFeasible Int LH_NNLSWorkingData
+                     | LH_TestW Int (LA.Vector Double) LH_NNLSWorkingData
                      | LH_NewInfeasible Int (LA.Vector Double) LH_NNLSWorkingData
-                     | LH_UnconstrainedSolve Int LH_NNLSWorkingData
+                     | LH_UnconstrainedSolve Int (Maybe (LA.Vector Double, Int)) LH_NNLSWorkingData
 
 nnlsX :: NNLS_LHContinue -> LA.Vector Double
 nnlsX (LH_NewFeasible _ (LH_NNLSWorkingData x _)) = x
+nnlsX (LH_TestW _ _ (LH_NNLSWorkingData x _)) = x
 nnlsX (LH_NewInfeasible _ _ (LH_NNLSWorkingData x _)) = x
-nnlsX (LH_UnconstrainedSolve _ (LH_NNLSWorkingData x _)) = x
+nnlsX (LH_UnconstrainedSolve _ _ (LH_NNLSWorkingData x _)) = x
 
 nnlsIter :: NNLS_LHContinue -> Int
 nnlsIter (LH_NewFeasible n _) = n
+nnlsIter (LH_TestW n _ _) = n
 nnlsIter (LH_NewInfeasible n _ _) = n
-nnlsIter (LH_UnconstrainedSolve n _) = n
+nnlsIter (LH_UnconstrainedSolve n _ _) = n
 
 
 lhNNLSStep :: Monad m => ActiveSetConfiguration m -> LA.Matrix Double -> LA.Vector Double -> NNLS_LHContinue -> m (NNLSStep NNLS_LHContinue)
 lhNNLSStep config a b lhc = case lhc of
-  LH_NewFeasible n (LH_NNLSWorkingData x ws) -> do
+  LH_NewFeasible n wd@(LH_NNLSWorkingData x ws) -> do
     log config $ "(n=" <> show n <> ") Feasible x=" <> show x <> "\n" <> " WorkingSet=" <> show ws
-    let w = trace (show x) $ LA.tr a LA.#> (b - a LA.#> x)
+    let w = LA.tr a LA.#> (b - a LA.#> x)
+    pure $ NNLS_Continue (LH_TestW n w  wd)
+  LH_TestW n w (LH_NNLSWorkingData x ws) -> do
+    log config $ "(n=" <> show n <> ") TestW x=" <> show x <> "\n" <> " WorkingSet=" <> show ws
     log config $ "w=" <> show w
     let (freeIS, zeroIS) = workingIS ws
         emptyZ = IS.size zeroIS == 0
-        allNegW =  Nothing == VS.find (> 0) (subVector zeroIS w)
+        wAtZeros = subVector zeroIS w
+        allNegW =  Nothing == VS.find (> 0) wAtZeros
     if (emptyZ || allNegW)
-      then pure $ NNLS_Optimal (n + 1) x
-      else case vecIndexLargest (addZeroesV freeIS $ subVector zeroIS w) of
+      then pure $ NNLS_Optimal n x
+      else case vecIndexLargest (addZeroesV freeIS wAtZeros) of -- this only works because we know largest is > 0
              Nothing -> pure $ NNLS_Error n "lhNNLSStep: vecIndexLargest returned Nothing. Empty w?"
              Just (maxWIndex, _) -> do
                let newWorkingSet = toState ASFree [maxWIndex] ws
-               pure $ NNLS_Continue $ LH_UnconstrainedSolve (n + 1) $ LH_NNLSWorkingData x newWorkingSet
-  LH_UnconstrainedSolve n (LH_NNLSWorkingData x ws) -> do
-    log config $ "(n=" <> show n <> ") unconstrained Solve x=" <> show x <> "\n" <> " WorkingSet=" <> show ws
+               pure $ NNLS_Continue $ LH_UnconstrainedSolve n (Just (w, maxWIndex)) $ LH_NNLSWorkingData x newWorkingSet
+  LH_UnconstrainedSolve n mW wd@(LH_NNLSWorkingData x ws) -> do
+    log config $ "(n=" <> show n <> ") Unconstrained Solve x=" <> show x <> "\n" <> " WorkingSet=" <> show ws
+    log config $ "mW=" <> show mW
     let (freeIS, zeroIS) = workingIS ws
         newA = subMatrix freeIS a
---        newB = subVector freeIS b
-    log config $ "newA=" <> show newA -- <> "\n newB=" <> show newB
+    log config $ "newA=" <> show newA
     let lsSolution = case (asSolver config) of
           SolveLS -> LA.flatten $ LA.linearSolveLS newA (LA.asColumn b)
           SolveSVD -> LA.flatten $ LA.linearSolveSVD newA (LA.asColumn b)
-    case vecIndexSmallest lsSolution of
-      Nothing -> pure $ NNLS_Error n "lhNNLSStep: vecIndexSmallest returned Nothing. Empty lsSolution?"
-      Just (_, smallest) -> if smallest > 0
-        then pure $ NNLS_Continue $ LH_NewFeasible (n + 1) (LH_NNLSWorkingData (addZeroesV zeroIS lsSolution) ws)
-        else pure $ NNLS_Continue $ LH_NewInfeasible (n + 1) lsSolution (LH_NNLSWorkingData x ws)
+        g (w, t) = if (addZeroesV zeroIS lsSolution) VS.! t < 0 then Just (w ,t) else Nothing
+    case mW >>= g of
+      Just (w, t) -> do
+        log config $ "solution is < 0 at index of max W. Zeroing W there and trying again."
+        pure $ NNLS_Continue $ LH_TestW (n + 1) (w VS.// [(t, 0)]) wd
+      Nothing ->  case vecIndexSmallest lsSolution of
+                    Nothing -> pure $ NNLS_Error n "lhNNLSStep: vecIndexSmallest returned Nothing. Empty lsSolution?"
+                    Just (_, smallest) -> if smallest > 0
+                      then pure $ NNLS_Continue $ LH_NewFeasible (n + 1) (LH_NNLSWorkingData (addZeroesV zeroIS lsSolution) ws)
+                      else pure $ NNLS_Continue $ LH_NewInfeasible (n + 1) lsSolution (LH_NNLSWorkingData x ws)
   LH_NewInfeasible n z (LH_NNLSWorkingData x ws) -> do
     log config $ "(n=" <> show n <> ") Infeasible z=" <> show z <> "\n" <> " WorkingSet=" <> show ws <> "\nx=" <> show x
     let (freeIS, zeroIS) = workingIS ws
         z' = addZeroesV zeroIS z
         x' = subVector freeIS x
         y = VS.zipWith (\xx zz -> xx / (xx - zz)) x' z'
-        s1 = zip3 (VS.toList y) (VS.toList z') [0..]
-        g (a, _, _) = a
+    log config $ "alphas=" <> show y
+    let s1 = zip3 (VS.toList y) (VS.toList z') [0..]
+    log config $ "s1=" <> show s1
+    let g (a, _, _) = a
         s2 = sortOn g $ filter (\(_, q, _) -> q <= 0) s1
         mAlpha = g <$> viaNonEmpty head s2
     case mAlpha of
@@ -162,21 +177,28 @@ lhNNLSStep config a b lhc = case lhc of
         let x' = x + VS.map (* alpha) (x - z)
             newZeroIs = fmap snd $ filter ((< asEpsilon config) . abs . fst) $ zip (VS.toList x') [0..]
             ws' = toState ASZero newZeroIs ws
-        pure $ NNLS_Continue $ LH_UnconstrainedSolve (n + 1) (LH_NNLSWorkingData x' ws')
+        pure $ NNLS_Continue $ LH_UnconstrainedSolve n Nothing (LH_NNLSWorkingData x' ws')
+
+--lift :: Monad m => m a -> X.ExceptT m a
+--lift = X.ExceptT . fmap Right
 
 optimalNNLS :: forall m . Monad m
             => ActiveSetConfiguration m
             -> LA.Matrix Double
             -> LA.Vector Double
             -> m (Either Text (Int, LA.Vector Double))
-optimalNNLS config a b  = do
-  _<- pure $ checkDimensionsNNLS a b (VS.replicate (LA.cols a) 0)
-  let go :: NNLSStep NNLS_LHContinue -> m (Either Text (Int, LA.Vector Double))
-      go (NNLS_Optimal n x') = pure $ Right (n, x')
-      go (NNLS_Error iter msg) = pure $ Left $ "ActiveSet.findOptimal (after " <> show iter <> " steps): " <> msg
+optimalNNLS config a b  = X.runExceptT $ do
+  _ <- case checkDimensionsNNLS a b (VS.replicate (LA.cols a) 0) of
+    Left msg -> X.throwE msg
+    Right _ -> pure ()
+  lift $ log config $ "a=" <> show a
+  lift $ log config $ "b=" <> show b
+  let go :: NNLSStep NNLS_LHContinue -> X.ExceptT Text m (Int, LA.Vector Double)
+      go (NNLS_Optimal n x') = pure (n, x')
+      go (NNLS_Error iter msg) = X.throwE $ "ActiveSet.findOptimal (after " <> show iter <> " steps): " <> msg
       go (NNLS_Continue c) = if nnlsIter c < asMaxIters config
-                               then lhNNLSStep @m config a b c >>= go
-                               else pure $ Left $ "ActiveSet.optimalNNLS maxIters (" <> show (nnlsIter c) <> ") reached: x=" <> show (nnlsX c)
+                             then lift (lhNNLSStep @m config a b c) >>= go
+                             else X.throwE $ "ActiveSet.optimalNNLS maxIters (" <> show (nnlsIter c) <> ") reached: x=" <> show (nnlsX c)
       xSize = LA.cols a
       initialX = VS.replicate xSize 0
       initialWorkingSet = LH_WorkingSet $ IM.fromList $ zip [0..(xSize - 1)] (L.replicate xSize ASZero)
