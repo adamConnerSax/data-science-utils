@@ -2,11 +2,14 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 module Numeric.ActiveSet where
 
 import qualified Numeric.LinearAlgebra as LA
 import Numeric.LinearAlgebra ((|||), (===), (#>), (<#))
 import qualified Data.Set as S
+import qualified Data.IntMap as IM
+import qualified Data.IntSet as IS
 import qualified Data.Vector.Storable as VS
 import qualified Control.Foldl as FL
 import qualified Data.List as L
@@ -24,16 +27,18 @@ projectToSimplex y = VS.fromList $ fmap (\x -> max 0 (x - tHat)) yL
     go 0 = t 0
     go k = let tk = t k in if tk > sY L.!! k then tk else go (k - 1)
 
-data ActiveSetConfiguration =
+data ActiveSetConfiguration m =
   ActiveSetConfiguration {
   asSolver :: EqualityConstrainedSolver
   , asEpsilon :: Double
   , asMaxIters :: Int
+  , log :: Text -> m ()
   }
 
-defaultActiveSetConfig :: ActiveSetConfiguration
-defaultActiveSetConfig = ActiveSetConfiguration SolveLS 1e-15 1000
+defaultActiveSetConfig :: (Text -> m ()) -> ActiveSetConfiguration m
+defaultActiveSetConfig log' = ActiveSetConfiguration SolveLS 1e-15 1000 log'
 
+{-
 findOptimalLH :: ActiveSetConfiguration
               -> LA.Matrix Double
               -> LA.Vector Double
@@ -42,25 +47,19 @@ findOptimalLH :: ActiveSetConfiguration
               -> LA.Vector Double
               -> Either Text (LA.Vector Double)
 findOptimalLH = findOptimal (StepType lhInitial lhActiveSetStep)
+-}
 
-lhInitial :: InitialNonOptimal WorkingSet
-lhInitial config _ _ _ ic x = let iws =  getWorkingSet (asEpsilon config) ic x in NotOptimal $ WorkingData 0 x iws
-
-lhActiveSetStep :: StepFunction WorkingSet
-lhActiveSetStep config a b ec@(EqualityConstraints g h) ic (WorkingData iter x ws) =
-  let  (IC c' d') = workingSetConstraints ws ic
-       fullC = g === c'
-       fullD = VS.concat [h, d']
-       numEC = LA.rows g
-       (x', allL) = equalityConstrained (asSolver config) a b fullC fullD
-  in if isFeasible (asEpsilon config) ec ic x'
-     then if Nothing == VS.find (> 0) (VS.drop numEC allL)
-          then OptimalFound iter x'
-          else case largestLambdaIndex ws (VS.drop numEC allL) of
-                 Nothing -> StepError iter "Some lambda is positive but there was an error finding the index of it."
-                 Just n -> {- trace ("Removing " <> show n <> " from working set and x'=" <> show x') $-}
-                   NotOptimal
-                   $ WorkingData (iter + 1) x' (removeFromWorkingSet n ws)
+{-
+lhActiveSetStep :: NNLSStepFunction WorkingSet
+lhActiveSetStep config a b (WorkingData iter x ws) =
+  if isFeasible (asEpsilon config) ec ic x'
+  then if Nothing == VS.find (> 0) (VS.drop numEC allL)
+       then OptimalFound iter x'
+       else case largestLambdaIndex ws (VS.drop numEC allL) of
+              Nothing -> StepError iter "Some lambda is positive but there was an error finding the index of it."
+                         Just n -> {- trace ("Removing " <> show n <> " from working set and x'=" <> show x') $-}
+NotOptimal
+  $ WorkingData (iter + 1) x' (removeFromWorkingSet n ws)
      else
        let u = x' - x
        in case maxAlpha ic x u of
@@ -68,56 +67,144 @@ lhActiveSetStep config a b ec@(EqualityConstraints g h) ic (WorkingData iter x w
             Just (alpha, n) ->  let x'' = (x + VS.map (* alpha) u)
                                 in {- trace ("Adding " <> show n <> " to working set and x'=" <> show x'') $ -}
                                   NotOptimal $ WorkingData (iter + 1) x'' (addToWorkingSet n ws)
+-}
 
-findOptimal :: StepType a
-            -> ActiveSetConfiguration
+data AS_State = ASFree | ASZero deriving (Show, Eq, Ord)
+data LH_WorkingSet = LH_WorkingSet (IM.IntMap AS_State) deriving stock (Show)
+
+initialLHWorkingSet:: Int -> LH_WorkingSet
+initialLHWorkingSet n = LH_WorkingSet $ IM.fromList $ zip [0..(n-1)] (replicate n ASZero)
+
+toState :: AS_State -> [Int] -> LH_WorkingSet -> LH_WorkingSet
+toState s is (LH_WorkingSet im) =  LH_WorkingSet $ IM.fromList (zip is (replicate (length is) s)) <> im
+
+workingIS :: LH_WorkingSet -> (IS.IntSet, IS.IntSet)
+workingIS (LH_WorkingSet im) = let (fim, zim) = IM.partition (== ASFree) im in (IM.keysSet fim, IM.keysSet zim)
+
+-- keep only columns in the index set
+subMatrix :: IS.IntSet -> LA.Matrix Double -> LA.Matrix Double
+subMatrix is m =  m LA.?? (LA.All, LA.Pos (LA.idxs $ IS.toList is))
+
+-- keep only elts in the index set
+subVector :: IS.IntSet -> LA.Vector Double -> LA.Vector Double
+subVector is v = VS.ifilter (\n _ -> IS.member n is) v
+
+-- add zeroes at the indices given
+addZeroesV :: IS.IntSet -> LA.Vector Double -> LA.Vector Double
+addZeroesV is v = VS.fromList $ IS.foldl' f (VS.toList v) is where
+  f l i = let (h, t) = L.splitAt i l in h <> (0 : t)
+
+data LH_NNLSWorkingData = LH_NNLSWorkingData (LA.Vector Double) LH_WorkingSet
+
+data NNLSStep a = NNLS_Optimal Int (LA.Vector Double)
+                | NNLS_Error Int Text
+                | NNLS_Continue a
+
+data NNLS_LHContinue = LH_NewFeasible Int LH_NNLSWorkingData
+                     | LH_NewInfeasible Int (LA.Vector Double) LH_NNLSWorkingData
+                     | LH_UnconstrainedSolve Int LH_NNLSWorkingData
+
+nnlsX :: NNLS_LHContinue -> LA.Vector Double
+nnlsX (LH_NewFeasible _ (LH_NNLSWorkingData x _)) = x
+nnlsX (LH_NewInfeasible _ _ (LH_NNLSWorkingData x _)) = x
+nnlsX (LH_UnconstrainedSolve _ (LH_NNLSWorkingData x _)) = x
+
+nnlsIter :: NNLS_LHContinue -> Int
+nnlsIter (LH_NewFeasible n _) = n
+nnlsIter (LH_NewInfeasible n _ _) = n
+nnlsIter (LH_UnconstrainedSolve n _) = n
+
+
+lhNNLSStep :: Monad m => ActiveSetConfiguration m -> LA.Matrix Double -> LA.Vector Double -> NNLS_LHContinue -> m (NNLSStep NNLS_LHContinue)
+lhNNLSStep config a b lhc = case lhc of
+  LH_NewFeasible n (LH_NNLSWorkingData x ws) -> do
+    log config $ "(n=" <> show n <> ") Feasible x=" <> show x <> "\n" <> " WorkingSet=" <> show ws
+    let w = trace (show x) $ LA.tr a LA.#> (b - a LA.#> x)
+    log config $ "w=" <> show w
+    let (freeIS, zeroIS) = workingIS ws
+        emptyZ = IS.size zeroIS == 0
+        allNegW =  Nothing == VS.find (> 0) (subVector zeroIS w)
+    if (emptyZ || allNegW)
+      then pure $ NNLS_Optimal (n + 1) x
+      else case vecIndexLargest (addZeroesV freeIS $ subVector zeroIS w) of
+             Nothing -> pure $ NNLS_Error n "lhNNLSStep: vecIndexLargest returned Nothing. Empty w?"
+             Just (maxWIndex, _) -> do
+               let newWorkingSet = toState ASFree [maxWIndex] ws
+               pure $ NNLS_Continue $ LH_UnconstrainedSolve (n + 1) $ LH_NNLSWorkingData x newWorkingSet
+  LH_UnconstrainedSolve n (LH_NNLSWorkingData x ws) -> do
+    log config $ "(n=" <> show n <> ") unconstrained Solve x=" <> show x <> "\n" <> " WorkingSet=" <> show ws
+    let (freeIS, zeroIS) = workingIS ws
+        newA = subMatrix freeIS a
+--        newB = subVector freeIS b
+    log config $ "newA=" <> show newA -- <> "\n newB=" <> show newB
+    let lsSolution = case (asSolver config) of
+          SolveLS -> LA.flatten $ LA.linearSolveLS newA (LA.asColumn b)
+          SolveSVD -> LA.flatten $ LA.linearSolveSVD newA (LA.asColumn b)
+    case vecIndexSmallest lsSolution of
+      Nothing -> pure $ NNLS_Error n "lhNNLSStep: vecIndexSmallest returned Nothing. Empty lsSolution?"
+      Just (_, smallest) -> if smallest > 0
+        then pure $ NNLS_Continue $ LH_NewFeasible (n + 1) (LH_NNLSWorkingData (addZeroesV zeroIS lsSolution) ws)
+        else pure $ NNLS_Continue $ LH_NewInfeasible (n + 1) lsSolution (LH_NNLSWorkingData x ws)
+  LH_NewInfeasible n z (LH_NNLSWorkingData x ws) -> do
+    log config $ "(n=" <> show n <> ") Infeasible z=" <> show z <> "\n" <> " WorkingSet=" <> show ws <> "\nx=" <> show x
+    let (freeIS, zeroIS) = workingIS ws
+        z' = addZeroesV zeroIS z
+        x' = subVector freeIS x
+        y = VS.zipWith (\xx zz -> xx / (xx - zz)) x' z'
+        s1 = zip3 (VS.toList y) (VS.toList z') [0..]
+        g (a, _, _) = a
+        s2 = sortOn g $ filter (\(_, q, _) -> q <= 0) s1
+        mAlpha = g <$> viaNonEmpty head s2
+    case mAlpha of
+      Nothing -> pure $ NNLS_Error n "lhNNLSStep:Empty list in alpha finding step in LH_NewInFeasible"
+      Just alpha -> do
+        log config $ "alpha=" <> show alpha
+        let x' = x + VS.map (* alpha) (x - z)
+            newZeroIs = fmap snd $ filter ((< asEpsilon config) . abs . fst) $ zip (VS.toList x') [0..]
+            ws' = toState ASZero newZeroIs ws
+        pure $ NNLS_Continue $ LH_UnconstrainedSolve (n + 1) (LH_NNLSWorkingData x' ws')
+
+optimalNNLS :: forall m . Monad m
+            => ActiveSetConfiguration m
             -> LA.Matrix Double
             -> LA.Vector Double
-            -> EqualityConstraints
-            -> InequalityConstraints
-            -> LA.Vector Double
-            -> Either Text (LA.Vector Double)
-findOptimal step config a b ec@(EqualityConstraints g h) ic' x = do
-  let ic@(IC c d) = convertInequalityConstraints ic'
-  _<- checkDimensions a b ec ic x
-  _ <- if isFeasible (asEpsilon config) ec ic x then Right ()
-       else Left
-            $ "ActiveSet.findOptimal: Given guess is not a feasible solution!"
-            <> "Gx - h = " <> show ((g #> x) - h)
-            <> "Cx - d = " <> show ((c #> x) - d)
-  let go (OptimalFound _ x') = Right x'
-      go (StepError iter msg) = Left $ "ActiveSet.findOptimal (after " <> show iter <> " steps): " <> msg
-      go (NotOptimal wd) = if iters wd < asMaxIters config
-                           then go $ (stepFunction step) config a b ec ic wd
-                           else Left $ "ActiveSet.findOptimal: maxIters (" <> show (iters wd) <> ") reached: x=" <> show (curX wd)
-  go $ (stepInitial step) config a b ec ic x
+            -> m (Either Text (Int, LA.Vector Double))
+optimalNNLS config a b  = do
+  _<- pure $ checkDimensionsNNLS a b (VS.replicate (LA.cols a) 0)
+  let go :: NNLSStep NNLS_LHContinue -> m (Either Text (Int, LA.Vector Double))
+      go (NNLS_Optimal n x') = pure $ Right (n, x')
+      go (NNLS_Error iter msg) = pure $ Left $ "ActiveSet.findOptimal (after " <> show iter <> " steps): " <> msg
+      go (NNLS_Continue c) = if nnlsIter c < asMaxIters config
+                               then lhNNLSStep @m config a b c >>= go
+                               else pure $ Left $ "ActiveSet.optimalNNLS maxIters (" <> show (nnlsIter c) <> ") reached: x=" <> show (nnlsX c)
+      xSize = LA.cols a
+      initialX = VS.replicate xSize 0
+      initialWorkingSet = LH_WorkingSet $ IM.fromList $ zip [0..(xSize - 1)] (L.replicate xSize ASZero)
+  go $ NNLS_Continue (LH_NewFeasible 0 (LH_NNLSWorkingData initialX initialWorkingSet))
   -- trace ("initial working set is" <> show initialWorkingSet) $ go 0 $ NotOptimal initialWorkingSet x
 
 data WorkingData a = WorkingData { iters:: !Int, curX :: !(LA.Vector Double), stepData :: !a} deriving stock (Show)
 -- a carries algorithm dependent extra data for next step
 data StepResult a = OptimalFound Int (LA.Vector Double) | NotOptimal (WorkingData a) | StepError Int Text deriving stock (Show)
 
-data StepType a = StepType { stepInitial :: InitialNonOptimal a, stepFunction :: StepFunction a}
+{-
+data NNLSStepType a = StepType { stepInitial :: NNLSInitialNonOptimal a, stepFunction :: NNLSStepFunction a}
 
 
-type InitialNonOptimal a =  (ActiveSetConfiguration
+type NNLSInitialNonOptimal a m =  (ActiveSetConfiguration m
+                                  -> LA.Matrix Double
+                                  -> LA.Vector Double
+                                  -> LA.Vector Double
+                                  -> StepResult a
+                                  )
+
+type NNLSStepFunction a m = (ActiveSetConfiguration m
                             -> LA.Matrix Double
                             -> LA.Vector Double
-                            -> EqualityConstraints
-                            -> IC
-                            -> LA.Vector Double
+                            -> WorkingData a
                             -> StepResult a
                             )
-
-type StepFunction a = (ActiveSetConfiguration
-                      -> LA.Matrix Double
-                      -> LA.Vector Double
-                      -> EqualityConstraints
-                      -> IC
-                      -> WorkingData a
-                      -> StepResult a
-                      )
-
+-}
 data InequalityConstraints where
   SimpleBounds :: LA.Vector Double -> LA.Vector Double -> InequalityConstraints
   -- ^ l <= x <= u
@@ -177,6 +264,21 @@ mostNegativeLambdaIndex (WorkingSet s) l = safeIndex smallestWorking (S.toList s
   f (n, sIndex, smallest) x = if x < smallest then (n + 1, n, x) else (n + 1, sIndex, smallest)
   (_, smallestWorking, _) = VS.foldl' f (0, 0, 0) l
   safeIndex k l' = if k > length l' - 1 then Nothing else Just (l' L.!! k)
+
+vecIndexLargest :: LA.Vector Double -> Maybe (Int, Double)
+vecIndexLargest v = (indexLargest,) <$>  mLargest where
+  f (n, sIndex, mLargest) x = case mLargest of
+    Nothing -> (n+1, n, Just x)
+    Just largest -> if x > largest then (n + 1, n, Just x) else (n + 1, sIndex, Just largest)
+  (_, indexLargest, mLargest) = VS.foldl' f (0, 0, Nothing) v
+
+vecIndexSmallest :: LA.Vector Double -> Maybe (Int, Double)
+vecIndexSmallest v = (indexSmallest,) <$> mSmallest where
+  f (n, sIndex, mSmallest) x = case mSmallest of
+    Nothing -> (n +1, n, Just x)
+    Just smallest -> if x < smallest then (n + 1, n, Just x) else (n + 1, sIndex, Just smallest)
+  (_, indexSmallest, mSmallest) = VS.foldl' f (0, 0, Nothing) v
+
 
 largestLambdaIndex :: WorkingSet -> LA.Vector Double -> Maybe Int
 largestLambdaIndex (WorkingSet s) l = safeIndex largestWorking (S.toList s) where
@@ -257,3 +359,71 @@ checkDimensions a b (EqualityConstraints g h) (IC c d) x = do
   if xRows /= aCols
     then Left ("guess vector x is different length (" <> show xRows <> ") than A has cols (" <> show aCols <> ")")
     else Right ()
+
+
+checkDimensionsNNLS :: LA.Matrix Double
+                    -> LA.Vector Double
+                    -> LA.Vector Double
+                    -> Either Text ()
+checkDimensionsNNLS a b x = do
+  let (aRows, aCols) = LA.size a
+      bRows = LA.size b
+  _ <- if bRows /= aRows
+       then Left ("target vector b is different length (" <> show bRows <> ") than A has rows (" <> show aRows <> ")")
+       else Right ()
+  let xRows = LA.size x
+  if xRows /= aCols
+    then Left ("guess vector x is different length (" <> show xRows <> ") than A has cols (" <> show aCols <> ")")
+    else Right ()
+
+
+{-
+lhActiveSetStep :: NNLSStepFunction WorkingSet
+lhActiveSetStep config a b ec@(EqualityConstraints g h) ic (WorkingData iter x ws) =
+  let  (IC c' d') = workingSetConstraints ws ic
+       fullC = g === c'
+       fullD = VS.concat [h, d']
+       numEC = LA.rows g
+       (x', allL) = equalityConstrained (asSolver config) a b fullC fullD
+  in if isFeasible (asEpsilon config) ec ic x'
+     then if Nothing == VS.find (> 0) (VS.drop numEC allL)
+          then OptimalFound iter x'
+          else case largestLambdaIndex ws (VS.drop numEC allL) of
+                 Nothing -> StepError iter "Some lambda is positive but there was an error finding the index of it."
+                 Just n -> {- trace ("Removing " <> show n <> " from working set and x'=" <> show x') $-}
+                   NotOptimal
+                   $ WorkingData (iter + 1) x' (removeFromWorkingSet n ws)
+     else
+       let u = x' - x
+       in case maxAlpha ic x u of
+            Nothing -> StepError iter "New x is not feasible but there was an error finding alpha such that x + alpha u is."
+            Just (alpha, n) ->  let x'' = (x + VS.map (* alpha) u)
+                                in {- trace ("Adding " <> show n <> " to working set and x'=" <> show x'') $ -}
+                                  NotOptimal $ WorkingData (iter + 1) x'' (addToWorkingSet n ws)
+
+
+findOptimal :: StepType a
+            -> ActiveSetConfiguration
+            -> LA.Matrix Double
+            -> LA.Vector Double
+            -> EqualityConstraints
+            -> InequalityConstraints
+            -> LA.Vector Double
+            -> Either Text (LA.Vector Double)
+findOptimal step config a b ec@(EqualityConstraints g h) ic' x = do
+  let ic@(IC c d) = convertInequalityConstraints ic'
+  _<- checkDimensions a b ec ic x
+  _ <- if isFeasible (asEpsilon config) ec ic x then Right ()
+       else Left
+            $ "ActiveSet.findOptimal: Given guess is not a feasible solution!"
+            <> "Gx - h = " <> show ((g #> x) - h)
+            <> "Cx - d = " <> show ((c #> x) - d)
+  let go (OptimalFound _ x') = Right x'
+      go (StepError iter msg) = Left $ "ActiveSet.findOptimal (after " <> show iter <> " steps): " <> msg
+      go (NotOptimal wd) = if iters wd < asMaxIters config
+                           then go $ (stepFunction step) config a b ec ic wd
+                           else Left $ "ActiveSet.findOptimal: maxIters (" <> show (iters wd) <> ") reached: x=" <> show (curX wd)
+  go $ (stepInitial step) config a b ec ic x
+  -- trace ("initial working set is" <> show initialWorkingSet) $ go 0 $ NotOptimal initialWorkingSet x
+
+-}
