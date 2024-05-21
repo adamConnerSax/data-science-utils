@@ -4,7 +4,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
-module Numeric.ActiveSet where
+module Numeric.ActiveSet
+  (
+  module Numeric.ActiveSet
+  , module Numeric.NNLS.Types
+  ) where
 
 
 import Numeric.NNLS.Types
@@ -187,6 +191,28 @@ optimalNNLS logF config a b  = do
 
     go $ NNLS_Continue LH_NewFeasible
   -- trace ("initial working set is" <> show initialWorkingSet) $ go 0 $ NotOptimal initialWorkingSet x
+
+optimalLDP :: forall m . Monad m
+           => LogF m
+           -> ActiveSetConfiguration
+           -> InequalityConstraints
+           -> m (Either Text (LA.Vector Double), Int)
+optimalLDP logF config ic' = do
+  let (IC g h) = convertInequalityConstraints ic'
+      n = LA.rows e
+      e = LA.tr g === LA.asRow h
+      f = VS.fromList (L.replicate n 0 <> [1])
+  (eRes, n) <- optimalNNLS logF config e f
+  case eRes of
+    Left msg -> pure (Left ("optimalLDP: error in optimalNNLS step" <> msg), n)
+    Right r -> do
+      if LA.norm_2 r < asEpsilon config
+        then pure (Left "optimalLDP: incompatible inequalities!", n)
+        else (let (x', vn) = VS.splitAt (n  - 1) r
+                  r_n = vn VS.! 0
+                  x = VS.map (\y -> negate y / r_n) x' -- x_k = -r_k/r_{n+1}
+              in pure (Right x, n)
+             )
 
 data WorkingData a = WorkingData { iters:: !Int, curX :: !(LA.Vector Double), stepData :: !a} deriving stock (Show)
 -- a carries algorithm dependent extra data for next step
