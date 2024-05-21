@@ -11,7 +11,10 @@ import qualified Control.Lens as Lens
 import qualified Control.Monad.RWS.Strict as RWS
 import qualified Control.Error as X
 import qualified Data.IntMap as IM
+import qualified Data.List as L
 import qualified Numeric.LinearAlgebra as LA
+import Numeric.LinearAlgebra ((|||), (===), (#>), (<#))
+import qualified Data.Vector.Storable as VS
 
 data AlgoData a = AlgoData { _algoIters :: !Int, _algoData :: !a} deriving stock (Show)
 
@@ -21,7 +24,6 @@ newtype ASM a m x = ASM { unASM :: X.ExceptT Text (RWS.RWST ActiveSetConfigurati
 
 throwASM :: Monad m => Text -> ASM a m x
 throwASM = ASM . X.throwE
-
 
 type LogF m = Text -> m ()
 
@@ -40,10 +42,62 @@ data ActiveSetConfiguration =
   , asMaxIters :: Int
 --  , log :: Text -> m ()
   }
+-- | The machine precision of a Double: @eps = 2.22044604925031e-16@ (the value used by GNU-Octave).
+eps :: Double
+eps =  2.22044604925031e-16
 
 defaultActiveSetConfig :: ActiveSetConfiguration
-defaultActiveSetConfig = ActiveSetConfiguration SolveLS 1e-15 1000
+defaultActiveSetConfig = ActiveSetConfiguration SolveLS eps 1000
 
+data InequalityConstraints where
+  SimpleBounds :: LA.Vector Double -> LA.Vector Double -> InequalityConstraints
+  -- ^ l <= x <= u
+  MatrixUpper :: LA.Matrix Double -> LA.Vector Double -> InequalityConstraints
+  -- ^ Ax <= b
+  MatrixLower :: LA.Matrix Double -> LA.Vector Double -> InequalityConstraints
+  -- ^ Ax >= b
+
+emptyInequalityConstraints :: Int -> InequalityConstraints
+emptyInequalityConstraints n = MatrixLower (LA.matrix n []) (VS.fromList [])
+
+data EqualityConstraints = EqualityConstraints !(LA.Matrix Double) !(LA.Vector Double) deriving stock (Show)
+
+emptyEqualityConstraints :: Int -> EqualityConstraints
+emptyEqualityConstraints n = EqualityConstraints (LA.matrix n []) (VS.fromList [])
+
+data IC = IC (LA.Matrix Double) (LA.Vector Double) deriving stock (Show)
+
+convertInequalityConstraints :: InequalityConstraints -> IC
+convertInequalityConstraints (SimpleBounds l u ) = IC a b where
+  a = LA.ident (LA.size l) === negate (LA.ident $ LA.size u)
+  b = VS.concat [l, negate u]
+convertInequalityConstraints (MatrixUpper a b) = IC (negate a) (negate b)
+convertInequalityConstraints (MatrixLower a b) = IC a b
+
+checkConstraints' :: Double -> IC -> LA.Vector Double -> Either Text ()
+checkConstraints' eps' (IC g h) x = traverse_ checkOne [0..(LA.size x - 1)] where
+  gRows = LA.toRows g
+  checkOne k =
+    let
+      gRowk = gRows L.!! k
+      hk = h VS.! k
+      gRowk_x = gRowk `LA.dot` x
+    in case gRowk_x >= hk - eps' || gRowk_x >= hk + eps' of
+      True -> pure ()
+      False -> Left $ "checkConstraints failed: x=" <> show x
+               <> "; G[" <> show k <> ",]=" <> show gRowk
+               <> "; h[" <> show k <> "]=" <> show hk
+               <> "; G[" <> show k <> ",]x = " <> show gRowk_x <> " < " <> show hk
+
+checkConstraints :: Double -> InequalityConstraints -> LA.Vector Double -> Either Text ()
+checkConstraints eps' (SimpleBounds l u) x = do
+  checkConstraints' eps' (IC (LA.ident $ LA.size x) l) x
+  checkConstraints' eps' (IC (negate $ LA.ident $ LA.size x) l) $ negate x
+checkConstraints eps' (MatrixUpper g h) x = checkConstraints eps' (MatrixLower (negate g) (negate h)) x
+checkConstraints eps' (MatrixLower g h) x = checkConstraints' eps' (IC g h) x
+
+normDiff ::  LA.Matrix Double -> LA.Vector Double -> LA.Vector Double -> Double
+normDiff a b x = LA.norm_2 $ (a LA.#> x) - b
 
 data AS_State = ASFree | ASZero deriving (Show, Eq, Ord)
 
