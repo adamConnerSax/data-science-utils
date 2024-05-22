@@ -66,9 +66,9 @@ nnlsAlgo ::  forall m . Monad m
          -> ASMLH m (LA.Vector Double)
 nnlsAlgo a b lf = do
   nnlsCheckDims a b
-  logASM lf $ "solving NNLS with"
-  logASM lf $ "a=" <> show a
-  logASM lf $ "b=" <> show b
+  logASM lf $ "solving NNLS"
+--  logASM lf $ "a=" <> show a
+--  logASM lf $ "b=" <> show b
   let xSize = LA.cols a
       go :: NNLSStep NNLS_LHContinue -> ASMLH m (LA.Vector Double)
       go (NNLS_Optimal x) = do
@@ -117,7 +117,7 @@ ldpAlgo ic lf = do
   let n = LA.cols g
       e = LA.tr g === LA.asRow h
       f = VS.fromList (L.replicate n 0 <> [1])
-  logASM lf $ "Solving LDP with G=" <> show g <> "\n h=" <> show h
+  logASM lf $ "Solving LDP" --"with G=" <> show g <> "\n h=" <> show h
   u <- nnlsAlgo e f lf
   eps <- RWS.asks cfgEpsilon
   let r = e #> u - f
@@ -156,7 +156,7 @@ lsiAlgo :: forall m . Monad m
         -> LogF m
         -> ASMLH m (LA.Vector Double)
 lsiAlgo lsiE f ic lf = do
-  logASM lf $ "Solving LSI with E=" <> show (originalE lsiE) <> "\n f=" <> show f <> "\nConstraints=" <> show ic
+  logASM lf $ "Solving LSI" -- with E=" <> show (originalE lsiE) <> "\n f=" <> show f <> "\nConstraints=" <> show ic
   lsiCheckDims lsiE f ic
   config <- RWS.ask
   (icz, zTox) <- ASM $ RWS.mapExceptT id $ lsiICAndZtoX config lsiE f ic
@@ -334,7 +334,7 @@ lhNNLSStep logF a b lhc = do
       log $ "mW=" <> show mW
       (freeIS, zeroIS) <- indexSets
       let newA = subMatrix freeIS a
-      log $ "newA=" <> show newA
+--      log $ "newA=" <> show newA
       solver <- RWS.asks cfgSolver
       let lsSolution = case solver of
             SolveLS -> LA.flatten $ LA.linearSolveLS newA (LA.asColumn b)
@@ -350,28 +350,31 @@ lhNNLSStep logF a b lhc = do
                       Just (_, smallest) -> if smallest > 0
                         then updateX (addZeroesV zeroIS lsSolution) >> pure (NNLS_Continue LH_NewFeasible)
                         else pure $ NNLS_Continue $ LH_NewInfeasible lsSolution
-    LH_NewInfeasible z -> do
+    LH_NewInfeasible zF -> do
       logStep "Infeasible"
-      log $ "z=" <> show z
-      (_, zeroIS) <- indexSets
+      log $ "z=" <> show zF
+      (freeIS, zeroIS) <- indexSets
       x <- getX
       LH_WorkingSet ws <- getWS
-      let z' = addZeroesV zeroIS z
-          y = VS.zipWith (\xx zz -> xx / (xx - zz)) x z'
-      let s1 = zip3 (VS.toList y) (VS.toList z') (IM.elems ws)
-      log $ "[(alpha, z, varState)]=" <> show s1
-      let g (a', _, _) = a'
-          s2 = sortOn g $ filter (\(_, q, varState) -> q <= 0 && varState == ASFree) s1
-          mAlpha = g <$> viaNonEmpty head s2
+      let xF = subVector freeIS x
+          alphaF = VS.zipWith (\xx zz -> xx / (xx - zz)) xF zF
+          s = zip3 (VS.toList alphaF) (VS.toList zF) (VS.toList xF)
+          fstS (q, _, _) = q
+          sndS (_, q, _) = q
+      log $ "[(alpha, z, x)]=" <> show s
+      let s' = sortOn fstS $ filter ((<= 0) . sndS) s
+      log $ "sorted [(alpha, z<=0, x)]=" <> show s'
+      let mAlpha = fstS <$> viaNonEmpty head s'
       case mAlpha of
         Nothing -> pure $ NNLS_Error "lhNNLSStep:Empty list in alpha finding step in LH_NewInFeasible"
         Just alpha -> do
           log $ "alpha=" <> show alpha
           eps <- RWS.asks cfgEpsilon
-          let x' = x + VS.map (* alpha) (x - z)
+          let x' = x + VS.map (* alpha) (addZeroesV zeroIS zF - x)
               newZeroIs = fmap snd $ filter ((< eps) . abs . fst) $ zip (VS.toList x') [0..]
           updateX x'
-          algoData . lhWS %= toState ASFree newZeroIs
+          algoData . lhWS %= toState ASZero newZeroIs
+          when (alpha >= 1 || alpha <= 0) $ throwASM "alpha issue!"
           pure $ NNLS_Continue $ LH_UnconstrainedSolve Nothing
 
 
