@@ -12,7 +12,7 @@ main = do
         Right x -> do
           putTextLn $ "Solution=" <> show x <> " took " <> show n <> " iteration(s)."
           putTextLn $ "||Ax - b||_2 = " <> show (normDiff a b x)
-      config = ActiveSetConfiguration SolveLS 1e-15 10
+      config = ActiveSetConfiguration SolveLS 1e-15 10 LogOnError
   let a = LA.matrix 3 [1, 1, 0, 0, 1, 1, 1, 0, 1]
       b = LA.vector [1, 2, -1]
   optimalNNLS logF config a b >>= showResult a b
@@ -24,7 +24,7 @@ main = do
   optimalLDP logF config (MatrixUpper a $ LA.vector [-1, -1, -1]) >>= showResult (LA.ident $ LA.cols a) (VS.replicate (LA.cols a) 0)
   putTextLn ""
   let nnlsConstraint n = MatrixLower (LA.ident n) $ VS.replicate n 0
-  optimalLSI logF config a b (nnlsConstraint $ LA.cols a)  >>= showResult a b
+  optimalLSI logF config (Original a) b (nnlsConstraint $ LA.cols a)  >>= showResult a b
   putTextLn $ show $ checkConstraints 1e-8 (nnlsConstraint $ LA.cols a) $ LA.vector [0.0,1.4999999999999998,0.0]
   putTextLn $ show $ "normDiff=" <> show (normDiff a b (LA.vector [0.0,1.4999999999999998,0.0]))
 --  let ldpA n = LA.ident n

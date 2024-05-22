@@ -1,4 +1,5 @@
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,6 +18,7 @@ import Numeric.NNLS.Types
 import qualified Numeric.LinearAlgebra as LA
 import Numeric.LinearAlgebra ((|||), (===), (#>), (<#))
 import qualified Data.Set as S
+import qualified Data.Sequence as Seq
 import qualified Data.IntMap as IM
 import qualified Data.IntSet as IS
 import qualified Data.Vector.Storable as VS
@@ -26,6 +28,7 @@ import Control.Lens (view, views, use, uses, set, assign, over, (%=))
 import qualified Data.List as L
 
 import qualified Control.Monad.RWS.Strict as RWS
+import qualified Control.Monad.Except as RWS
 import qualified Control.Error as X
 --import Debug.Trace (trace)
 
@@ -41,6 +44,11 @@ projectToSimplex y = VS.fromList $ fmap (\x -> max 0 (x - tHat)) yL
     go 0 = t 0
     go k = let tk = t k in if tk > sY L.!! k then tk else go (k - 1)
 
+initialNNLSWorkingDataLH :: Int -> LH_NNLSWorkingData
+initialNNLSWorkingDataLH n = LH_NNLSWorkingData initialX initialWorkingSet where
+  initialX = VS.replicate n 0
+  initialWorkingSet = LH_WorkingSet $ IM.fromList $ zip [0..(n - 1)] (L.replicate n ASZero)
+
 optimalNNLS :: forall m . Monad m
             => LogF m
             -> ActiveSetConfiguration
@@ -49,28 +57,36 @@ optimalNNLS :: forall m . Monad m
             -> m (Either Text (LA.Vector Double), Int)
 optimalNNLS logF config a b  = do
   let xSize = LA.cols a
-      initialX = VS.replicate xSize 0
-      initialWorkingSet = LH_WorkingSet $ IM.fromList $ zip [0..(xSize - 1)] (L.replicate xSize ASZero)
+  runASM logF config (initialNNLSWorkingDataLH xSize) $ nnlsAlgo a b
 
-  runASM logF config (LH_NNLSWorkingData initialX initialWorkingSet) $ \lf -> do
-    _ <- case checkDimensionsNNLS a b (VS.replicate (LA.cols a) 0) of
-      Left msg -> throwASM msg
-      Right _ -> pure ()
-    logASM lf $ "a=" <> show a
-    logASM lf $ "b=" <> show b
-    let go :: NNLSStep NNLS_LHContinue -> ASMLH m (LA.Vector Double)
-        go (NNLS_Optimal x) = do
-          ASM $ X.hoistEither $ checkConstraints 1e-8 (MatrixLower (LA.ident xSize) $ VS.replicate xSize 0) x
-          logASM lf ("NNLS solution: x =" <> show x)
-          pure x
-        go (NNLS_Error msg) = getIters >>= \n -> throwASM $ "ActiveSet.findOptimal (after " <> show n <> " steps): " <> msg
-        go (NNLS_Continue c) = getIters >>= \n -> if n < asMaxIters config
-                                                  then lhNNLSStep logF a b c >>= go
-                                                  else use (algoData . lhX)
-                                                       >>= \x -> throwASM $ "ActiveSet.optimalNNLS maxIters (" <> show n <> ") reached: x=" <> show x
+nnlsAlgo ::  forall m . Monad m
+         => LA.Matrix Double
+         -> LA.Vector Double
+         -> LogF m
+         -> ASMLH m (LA.Vector Double)
+nnlsAlgo a b lf = do
+  _ <- case checkDimensionsNNLS a b (VS.replicate (LA.cols a) 0) of
+    Left msg -> throwASM msg
+    Right _ -> pure ()
+  logASM lf $ "solving NNLS with"
+  logASM lf $ "a=" <> show a
+  logASM lf $ "b=" <> show b
+  let xSize = LA.cols a
+      go :: NNLSStep NNLS_LHContinue -> ASMLH m (LA.Vector Double)
+      go (NNLS_Optimal x) = do
+        ASM $ X.hoistEither $ checkConstraints 1e-8 (MatrixLower (LA.ident xSize) $ VS.replicate xSize 0) x
+        logASM lf ("NNLS solution: x =" <> show x)
+        pure x
+      go (NNLS_Error msg) = getIters >>= \n -> throwASM $ "ActiveSet.findOptimal (after " <> show n <> " steps): " <> msg
+      go (NNLS_Continue c) = do
+        iters <- getIters
+        maxIters <- RWS.asks cfgMaxIters
+        if iters < maxIters
+          then lhNNLSStep lf a b c >>= go
+          else use (algoData . lhX)
+               >>= \x -> throwASM $ "ActiveSet.optimalNNLS maxIters (" <> show iters <> ") reached: x=" <> show x
 
-    go $ NNLS_Continue LH_NewFeasible
-  -- trace ("initial working set is" <> show initialWorkingSet) $ go 0 $ NotOptimal initialWorkingSet x
+  go $ NNLS_Continue LH_NewFeasible
 
 optimalLDP :: forall m . Monad m
            => LogF m
@@ -79,73 +95,118 @@ optimalLDP :: forall m . Monad m
            -> m (Either Text (LA.Vector Double), Int)
 optimalLDP logF config ic' = do
   let (IC g h) = convertInequalityConstraints ic'
+      nnlsSize = LA.cols g
+  runASM logF config (initialNNLSWorkingDataLH nnlsSize) $ ldpAlgo ic'
+
+ldpAlgo :: forall m . Monad m
+        => InequalityConstraints
+        -> LogF m
+        -> ASMLH m (LA.Vector Double)
+ldpAlgo ic lf = do
+  let (IC g h) = convertInequalityConstraints ic
       n = LA.cols g
-  let e = LA.tr g === LA.asRow h
-  let f = VS.fromList (L.replicate n 0 <> [1])
-  logF $ "Solving LDP with G=" <> show g <> "\n h=" <> show h
-  (eRes, iters') <- optimalNNLS logF config e f
-  case eRes of
-    Left msg -> pure (Left ("optimalLDP: error in optimalNNLS step=" <> msg), iters')
-    Right u -> do
-      let r = e #> u - f
-      if LA.norm_2 r < asEpsilon config
-        then pure (Left "optimalLDP: incompatible inequalities!", iters')
-        else (let (x', vnp1) = VS.splitAt n r
-                  r_np1 = vnp1 VS.! 0
-                  x = VS.map (\y -> negate y / r_np1) x' -- x_k = -r_k/r_{n+1}
-              in case checkConstraints 1e-8 ic' x of
-                 Left msg -> pure $ (Left $ "optimalLDP: " <> msg, iters')
-                 Right _ -> do
-                   logF ("LDP solution: x =" <> show x)
-                   pure (Right x, iters')
+      e = LA.tr g === LA.asRow h
+      f = VS.fromList (L.replicate n 0 <> [1])
+  logASM lf $ "Solving LDP with G=" <> show g <> "\n h=" <> show h
+  u <- nnlsAlgo e f lf
+  eps <- RWS.asks cfgEpsilon
+  let r = e #> u - f
+  if LA.norm_2 r < eps
+    then throwASM "optimalLDP: incompatible inequalities!"
+    else (do
+             let (x', vnp1) = VS.splitAt n r
+                 r_np1 = vnp1 VS.! 0
+                 x = VS.map (\y -> negate y / r_np1) x' -- x_k = -r_k/r_{n+1}
+             ASM $ X.hoistEither $ checkConstraints 1e-8 ic x
+             logASM lf $ "LDP solution: x =" <> show x
+             pure x
              )
 
 optimalLSI :: forall m . Monad m
            => LogF m
            -> ActiveSetConfiguration
-           -> LA.Matrix Double
+           -> LSI_E
            -> LA.Vector Double
            -> InequalityConstraints
            -> m (Either Text (LA.Vector Double), Int)
-optimalLSI logF config e f ic = do
-  lsiToLDPE <- X.runExceptT $ lsiToLDPInequalityConstraints logF e f ic
-  case  lsiToLDPE of
-    Left msg -> pure (Left ("optimalLSI: Error in lsiToLDPInequalityConstraints=" <> msg), 0)
-    Right (icz, zTox) -> do
-      (eZ, iters') <- optimalLDP logF config icz
-      case eZ of
-        Left msg -> pure (Left ("optimalLSI: Error in optimalLDP=" <> msg), iters')
-        Right z -> let x = zTox z
-                   in case checkConstraints 1e-8 ic x of
-                        Left msg -> pure (Left $ "optimalLSI: " <> msg, iters')
-                        Right _ -> pure (Right x, iters')
+optimalLSI logF config lsiE f ic = do
+  let nnlsSize = LA.cols (originalE lsiE)
+  runASM logF config (initialNNLSWorkingDataLH nnlsSize) $ lsiAlgo lsiE f ic
 
+lsiAlgo :: forall m . Monad m
+        => LSI_E
+        -> LA.Vector Double
+        -> InequalityConstraints
+        -> LogF m
+        -> ASMLH m (LA.Vector Double)
+lsiAlgo lsiE f ic lf = do
+  logASM lf $ "Solving LSI with E=" <> show (originalE lsiE) <> "\n f=" <> show f <> "\nConstraints=" <> show ic
+  config <- RWS.ask
+  (icz, zTox) <- ASM $ RWS.mapExceptT id $ lsiICAndZtoX config lsiE f ic
+  z <- ldpAlgo icz lf
+  let x = zTox z
+  ASM $ X.hoistEither $ checkConstraints 1e-8 ic x
+  pure x
+
+{-
 -- minimize ||Ex - f|| given inequality constraints
 -- transform to LSI (minimize ||z|| w.r.t. different inequality constraints)
 -- output is new inequality constraints and function to transform LDP result
 -- back to x of given LSI problem
 lsiToLDPInequalityConstraints :: Monad m
                               => LogF m
+                              -> ActiveSetConfiguration
                               -> LA.Matrix Double
                               -> LA.Vector Double
                               -> InequalityConstraints
                               -> X.ExceptT Text m (InequalityConstraints, LA.Vector Double -> LA.Vector Double)
-lsiToLDPInequalityConstraints logF e f ic = do
-  let (m2, n) = LA.size e
+lsiToLDPInequalityConstraints logF config e f ic = do
+  let log = when (asDebug config) . logF
+      (m2, n) = LA.size e
       (q, s, k) = LA.svd e
-      k' = LA.tr k
-  lift $ logF $ "e= " <> show e <> "\nqsk' =" <> show (q LA.<> LA.diag s <> k')
-  let rank = LA.ranksv eps (min m2 n) (VS.toList s)
+--      k' = LA.tr k
+      rank = LA.ranksv (asEpsilon config) (min m2 n) (VS.toList s)
   when (rank < n) $ X.throwE "lsiToLDPInequalityConstraints: given matrix E has rank < cols(E)"
   let rInv = LA.diag $ VS.map (1 /) $ VS.slice 0 n s
       (IC g h) = convertInequalityConstraints ic
-  lift $ logF $ "kk'=" <> show (k LA.<> k')
-  let kRinv = k LA.<> rInv
+      kRinv = k LA.<> rInv
       gLDP = g LA.<> kRinv
       q1 = LA.subMatrix (0, 0) (m2, n) q
       f1 = LA.tr q1 #> f
       hLDP = h - gLDP #> f1
       newInequalityConstraints = MatrixLower gLDP hLDP
+      zTox z = kRinv #> (z + f1)
+  pure (newInequalityConstraints, zTox)
+-}
+
+data LSI_E = Original (LA.Matrix Double)
+           | Precomputed (LA.Matrix Double) (LA.Matrix Double) (LA.Matrix Double)
+
+originalE :: LSI_E -> LA.Matrix Double
+originalE (Original e) = e
+originalE (Precomputed _ _ e) = e
+
+precomputeFromE :: Monad m => ActiveSetConfiguration -> LA.Matrix Double -> X.ExceptT Text m LSI_E
+precomputeFromE config e = do
+  let (m2, n) = LA.size e
+      (q, s, k) = LA.svd e
+      rank = LA.ranksv (cfgEpsilon config) (min m2 n) (VS.toList s)
+  when (rank < n) $ X.throwE "precomputeFromEG: given matrix E has rank < cols(E)"
+  let rInv = LA.diag $ VS.map (1 /) $ VS.slice 0 n s
+      kRinv = k LA.<> rInv
+      q1 = LA.subMatrix (0, 0) (m2, n) q
+  pure $ Precomputed kRinv q1 e
+
+lsiICAndZtoX :: Monad m
+             => ActiveSetConfiguration -> LSI_E -> LA.Vector Double -> InequalityConstraints
+             -> X.ExceptT Text m (InequalityConstraints, LA.Vector Double -> LA.Vector Double)
+lsiICAndZtoX config (Original e) f ic = precomputeFromE config e >>= \pc -> lsiICAndZtoX config pc f ic
+lsiICAndZtoX _ (Precomputed kRinv q1 _) f ic = do
+  let (IC g h) = convertInequalityConstraints ic
+      f1 = LA.tr q1 #> f
+      gkrI = g LA.<> kRinv
+      hLDP = h - gkrI #> f1
+      newInequalityConstraints = MatrixLower gkrI hLDP
       zTox z = kRinv #> (z + f1)
   pure (newInequalityConstraints, zTox)
 
@@ -189,7 +250,9 @@ nnlsIterPlusOne :: Monad m => ASM a m ()
 nnlsIterPlusOne = algoIters %= (+1) >> pure ()
 
 logASM :: Monad m => LogF m -> Text -> ASM a m ()
-logASM lf t = ASM $ lift $ lift $ lf t
+logASM lf t = RWS.asks cfgLogging >>= \case
+  LogAll -> ASM $ lift $ lift $ lf t
+  LogOnError -> RWS.tell $ Seq.singleton t
 
 logStepLH_NNLS :: Monad m => LogF m -> Text ->  ASMLH m ()
 logStepLH_NNLS lf t = do
@@ -234,7 +297,7 @@ lhNNLSStep logF a b lhc = do
       (freeIS, zeroIS) <- indexSets
       let newA = subMatrix freeIS a
       log $ "newA=" <> show newA
-      solver <- RWS.asks asSolver
+      solver <- RWS.asks cfgSolver
       let lsSolution = case solver of
             SolveLS -> LA.flatten $ LA.linearSolveLS newA (LA.asColumn b)
             SolveSVD -> LA.flatten $ LA.linearSolveSVD newA (LA.asColumn b)
@@ -266,7 +329,7 @@ lhNNLSStep logF a b lhc = do
         Nothing -> pure $ NNLS_Error "lhNNLSStep:Empty list in alpha finding step in LH_NewInFeasible"
         Just alpha -> do
           log $ "alpha=" <> show alpha
-          eps <- RWS.asks asEpsilon
+          eps <- RWS.asks cfgEpsilon
           let x' = x + VS.map (* alpha) (x - z)
               newZeroIs = fmap snd $ filter ((< eps) . abs . fst) $ zip (VS.toList x') [0..]
           updateX x'
