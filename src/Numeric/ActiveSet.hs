@@ -65,16 +65,14 @@ nnlsAlgo ::  forall m . Monad m
          -> LogF m
          -> ASMLH m (LA.Vector Double)
 nnlsAlgo a b lf = do
-  _ <- case checkDimensionsNNLS a b (VS.replicate (LA.cols a) 0) of
-    Left msg -> throwASM msg
-    Right _ -> pure ()
+  nnlsCheckDims a b
   logASM lf $ "solving NNLS with"
   logASM lf $ "a=" <> show a
   logASM lf $ "b=" <> show b
   let xSize = LA.cols a
       go :: NNLSStep NNLS_LHContinue -> ASMLH m (LA.Vector Double)
       go (NNLS_Optimal x) = do
-        ASM $ X.hoistEither $ checkConstraints 1e-8 (MatrixLower (LA.ident xSize) $ VS.replicate xSize 0) x
+        ASM $ X.hoistEither $ checkConstraints "(NNLS)" 1e-8 (MatrixLower (LA.ident xSize) $ VS.replicate xSize 0) x
         logASM lf ("NNLS solution: x =" <> show x)
         pure x
       go (NNLS_Error msg) = getIters >>= \n -> throwASM $ "ActiveSet.findOptimal (after " <> show n <> " steps): " <> msg
@@ -88,14 +86,25 @@ nnlsAlgo a b lf = do
 
   go $ NNLS_Continue LH_NewFeasible
 
+nnlsCheckDims :: Monad m
+              => LA.Matrix Double
+              -> LA.Vector Double
+              -> ASMLH m ()
+nnlsCheckDims a b = do
+  let (aRows, aCols) = LA.size a
+      bLength = LA.size b
+  xLength <- LA.size <$> use (algoData . lhX)
+  checkPair "NNLS" (aRows, "rows(A)") (bLength, "length(b)")
+  checkPair "NNLS" (aCols, "cols(A)") (xLength, "length(x)")
+
 optimalLDP :: forall m . Monad m
            => LogF m
            -> ActiveSetConfiguration
            -> InequalityConstraints
            -> m (Either Text (LA.Vector Double), Int)
 optimalLDP logF config ic' = do
-  let (IC g h) = convertInequalityConstraints ic'
-      nnlsSize = LA.cols g
+  let (IC g _) = convertInequalityConstraints ic'
+      nnlsSize = LA.rows g
   runASM logF config (initialNNLSWorkingDataLH nnlsSize) $ ldpAlgo ic'
 
 ldpAlgo :: forall m . Monad m
@@ -104,7 +113,8 @@ ldpAlgo :: forall m . Monad m
         -> ASMLH m (LA.Vector Double)
 ldpAlgo ic lf = do
   let (IC g h) = convertInequalityConstraints ic
-      n = LA.cols g
+  ldpCheckDims (IC g h)
+  let n = LA.cols g
       e = LA.tr g === LA.asRow h
       f = VS.fromList (L.replicate n 0 <> [1])
   logASM lf $ "Solving LDP with G=" <> show g <> "\n h=" <> show h
@@ -117,10 +127,16 @@ ldpAlgo ic lf = do
              let (x', vnp1) = VS.splitAt n r
                  r_np1 = vnp1 VS.! 0
                  x = VS.map (\y -> negate y / r_np1) x' -- x_k = -r_k/r_{n+1}
-             ASM $ X.hoistEither $ checkConstraints 1e-8 ic x
+             ASM $ X.hoistEither $ checkConstraints "(LDP)" 1e-8 ic x
              logASM lf $ "LDP solution: x =" <> show x
              pure x
              )
+
+ldpCheckDims :: Monad m => IC -> ASMLH m ()
+ldpCheckDims (IC g h) = do
+  let gRows = LA.rows g
+      hLength = LA.size h
+  checkPair "LDP" (gRows, "rows(G)") (hLength, "length(h)")
 
 optimalLSI :: forall m . Monad m
            => LogF m
@@ -130,7 +146,7 @@ optimalLSI :: forall m . Monad m
            -> InequalityConstraints
            -> m (Either Text (LA.Vector Double), Int)
 optimalLSI logF config lsiE f ic = do
-  let nnlsSize = LA.cols (originalE lsiE)
+  let nnlsSize = LA.rows (originalE lsiE)
   runASM logF config (initialNNLSWorkingDataLH nnlsSize) $ lsiAlgo lsiE f ic
 
 lsiAlgo :: forall m . Monad m
@@ -141,12 +157,32 @@ lsiAlgo :: forall m . Monad m
         -> ASMLH m (LA.Vector Double)
 lsiAlgo lsiE f ic lf = do
   logASM lf $ "Solving LSI with E=" <> show (originalE lsiE) <> "\n f=" <> show f <> "\nConstraints=" <> show ic
+  lsiCheckDims lsiE f ic
   config <- RWS.ask
   (icz, zTox) <- ASM $ RWS.mapExceptT id $ lsiICAndZtoX config lsiE f ic
   z <- ldpAlgo icz lf
   let x = zTox z
-  ASM $ X.hoistEither $ checkConstraints 1e-8 ic x
+  ASM $ X.hoistEither $ checkConstraints "(LSI)" 1e-8 ic x
   pure x
+
+lsiCheckDims :: Monad m => LSI_E -> LA.Vector Double -> InequalityConstraints -> ASMLH m ()
+lsiCheckDims lsiE f ic = do
+  let (IC g h) = convertInequalityConstraints ic
+      e = originalE lsiE
+      (eRows, eCols) = LA.size e
+      (gRows, gCols) = LA.size g
+      hLength = LA.size h
+      fLength = LA.size f
+  checkPair "LSI" (eRows, "rows(E)") (fLength, "length(f)")
+  checkPair "LSI" (gRows, "rows(G)") (hLength, "length(h)")
+  checkPair "LDP" (eCols, "cols(E)") (gCols, "cols(G)")
+
+checkPair :: Monad m => Text -> (Int, Text) -> (Int, Text) ->  ASMLH m ()
+checkPair t (n1, t1) (n2, t2) =
+  when (n1 /= n2)
+  $ throwASM
+  $ "Inconsistent dimensions in " <> t <> ": " <> t1 <> "=" <> show n1 <> " /= " <> t2 <> "=" <> show n2
+
 
 {-
 -- minimize ||Ex - f|| given inequality constraints
@@ -493,20 +529,6 @@ checkDimensions a b (EqualityConstraints g h) (IC c d) x = do
     else Right ()
 
 
-checkDimensionsNNLS :: LA.Matrix Double
-                    -> LA.Vector Double
-                    -> LA.Vector Double
-                    -> Either Text ()
-checkDimensionsNNLS a b x = do
-  let (aRows, aCols) = LA.size a
-      bRows = LA.size b
-  _ <- if bRows /= aRows
-       then Left ("target vector b is different length (" <> show bRows <> ") than A has rows (" <> show aRows <> ")")
-       else Right ()
-  let xRows = LA.size x
-  if xRows /= aCols
-    then Left ("guess vector x is different length (" <> show xRows <> ") than A has cols (" <> show aCols <> ")")
-    else Right ()
 
 
 {-

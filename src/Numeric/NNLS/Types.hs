@@ -85,8 +85,8 @@ convertInequalityConstraints (SimpleBounds l u ) = IC a b where
 convertInequalityConstraints (MatrixUpper a b) = IC (negate a) (negate b)
 convertInequalityConstraints (MatrixLower a b) = IC a b
 
-checkConstraints' :: Double -> IC -> LA.Vector Double -> Either Text ()
-checkConstraints' eps' (IC g h) x = traverse_ checkOne [0..(LA.size x - 1)] where
+checkConstraints' :: Text -> Double -> IC -> LA.Vector Double -> Either Text ()
+checkConstraints' t eps' (IC g h) x = traverse_ checkOne [0..(LA.size x - 1)] where
   gRows = LA.toRows g
   checkOne k =
     let
@@ -95,17 +95,17 @@ checkConstraints' eps' (IC g h) x = traverse_ checkOne [0..(LA.size x - 1)] wher
       gRowk_x = gRowk `LA.dot` x
     in case gRowk_x >= hk - eps' || gRowk_x >= hk + eps' of
       True -> pure ()
-      False -> Left $ "checkConstraints failed: x=" <> show x
+      False -> Left $ "checkConstraints " <> t <> " failed: x=" <> show x
                <> "; G[" <> show k <> ",]=" <> show gRowk
                <> "; h[" <> show k <> "]=" <> show hk
                <> "; G[" <> show k <> ",]x = " <> show gRowk_x <> " < " <> show hk
 
-checkConstraints :: Double -> InequalityConstraints -> LA.Vector Double -> Either Text ()
-checkConstraints eps' (SimpleBounds l u) x = do
-  checkConstraints' eps' (IC (LA.ident $ LA.size x) l) x
-  checkConstraints' eps' (IC (negate $ LA.ident $ LA.size x) l) $ negate x
-checkConstraints eps' (MatrixUpper g h) x = checkConstraints eps' (MatrixLower (negate g) (negate h)) x
-checkConstraints eps' (MatrixLower g h) x = checkConstraints' eps' (IC g h) x
+checkConstraints :: Text -> Double -> InequalityConstraints -> LA.Vector Double -> Either Text ()
+checkConstraints t eps' (SimpleBounds l u) x = do
+  checkConstraints' t eps' (IC (LA.ident $ LA.size x) l) x
+  checkConstraints' t eps' (IC (negate $ LA.ident $ LA.size x) l) $ negate x
+checkConstraints t eps' (MatrixUpper g h) x = checkConstraints t eps' (MatrixLower (negate g) (negate h)) x
+checkConstraints t eps' (MatrixLower g h) x = checkConstraints' t eps' (IC g h) x
 
 normDiff ::  LA.Matrix Double -> LA.Vector Double -> LA.Vector Double -> Double
 normDiff a b x = LA.norm_2 $ (a LA.#> x) - b
