@@ -163,6 +163,7 @@ lsiAlgo lsiE f ic lf = do
   z <- ldpAlgo icz lf
   let x = zTox z
   ASM $ X.hoistEither $ checkConstraints "(LSI)" 1e-8 ic x
+  logASM lf ("LSI solution: x =" <> show x)
   pure x
 
 lsiCheckDims :: Monad m => LSI_E -> LA.Vector Double -> InequalityConstraints -> ASMLH m ()
@@ -175,7 +176,7 @@ lsiCheckDims lsiE f ic = do
       fLength = LA.size f
   checkPair "LSI" (eRows, "rows(E)") (fLength, "length(f)")
   checkPair "LSI" (gRows, "rows(G)") (hLength, "length(h)")
-  checkPair "LDP" (eCols, "cols(E)") (gCols, "cols(G)")
+  checkPair "LSI" (eCols, "cols(E)") (gCols, "cols(G)")
 
 checkPair :: Monad m => Text -> (Int, Text) -> (Int, Text) ->  ASMLH m ()
 checkPair t (n1, t1) (n2, t2) =
@@ -317,9 +318,10 @@ lhNNLSStep logF a b lhc = do
       logStep "TestW"
       log $ "w=" <> show w
       (freeIS, zeroIS) <- indexSets
+      epsilon <- RWS.asks cfgEpsilon
       let emptyZ = IS.size zeroIS == 0
           wAtZeros = subVector zeroIS w
-          allNegW =  isNothing $ VS.find (> 0) wAtZeros
+          allNegW =  isNothing $ VS.find (> epsilon) wAtZeros
       if emptyZ || allNegW
         then getX >>= pure . NNLS_Optimal
         else case vecIndexLargest (addZeroesV freeIS wAtZeros) of -- this only works because we know largest is > 0
