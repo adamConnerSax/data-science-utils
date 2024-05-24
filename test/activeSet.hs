@@ -12,7 +12,7 @@ main = do
         Right x -> do
           putTextLn $ "Solution=" <> show x <> " took " <> show n <> " iteration(s)."
           putTextLn $ "||Ax - b||_2 = " <> show (normDiff a b x)
-      config = ActiveSetConfiguration SolveLS 1e-15 10 LogOnError
+      config = ActiveSetConfiguration SolveLS StartGS 1e-15 10 LogAll
   let a = LA.matrix 3 [1, 1, 0, 0, 1, 1, 1, 0, 1]
       b = LA.vector [1, 2, -1]
   optimalNNLS logF config a b >>= showResult a b
@@ -25,8 +25,22 @@ main = do
   putTextLn ""
   let nnlsConstraint n = MatrixLower (LA.ident n) $ VS.replicate n 0
   optimalLSI logF config (Original a) b (nnlsConstraint $ LA.cols a)  >>= showResult a b
-  putTextLn $ show $ checkConstraints 1e-8 (nnlsConstraint $ LA.cols a) $ LA.vector [0.0,1.4999999999999998,0.0]
-  putTextLn $ show $ "normDiff=" <> show (normDiff a b (LA.vector [0.0,1.4999999999999998,0.0]))
---  let ldpA n = LA.ident n
---      ldpb n = VS.replicate n 0
---  optimalLSI logF config (ldpA 3) (ldpb 3) (MatrixUpper a $ LA.vector [-1, -1, -1]) >>= showResult (ldpA 3) (ldpb 3)
+{-
+-- now some random NNLS problems to test the algo
+  randomNNLS n m = do
+    a <- LA.rand n m
+    b <- LA.randomVector m
+    optimalNNLS logF config a b >> showResult a b
+
+  randomLDP n m = do
+    g <- LA.rand n m
+    h <- LA.randomVector m
+    optimalLDP logF config (MatrixUpper g h) >> showResult a b
+
+  randomLSI n m j c = do
+    a <- LA.rand n m
+    b <- LA.randomVector m
+    g <- LA.rand c m
+    h <- LA.randomVector c
+    optimalLSI logF config (Original a) b (MatrixUpper g h)
+-}

@@ -46,9 +46,12 @@ runASM log config a toM =
 
 data Logging = LogNone | LogAll | LogOnError deriving stock (Show, Eq)
 
+data NNLS_Start = StartZero | StartGS
+
 data ActiveSetConfiguration =
   ActiveSetConfiguration {
   cfgSolver :: EqualityConstrainedSolver
+  , cfgStart :: NNLS_Start
   , cfgEpsilon :: Double
   , cfgMaxIters :: Int
   , cfgLogging :: Logging
@@ -58,7 +61,7 @@ eps :: Double
 eps =  2.22044604925031e-16
 
 defaultActiveSetConfig :: ActiveSetConfiguration
-defaultActiveSetConfig = ActiveSetConfiguration SolveLS eps 1000 LogOnError
+defaultActiveSetConfig = ActiveSetConfiguration SolveLS StartZero eps 1000 LogOnError
 
 data InequalityConstraints where
   SimpleBounds :: LA.Vector Double -> LA.Vector Double -> InequalityConstraints
@@ -112,9 +115,9 @@ normDiff a b x = LA.norm_2 $ (a LA.#> x) - b
 
 data AS_State = ASFree | ASZero deriving (Show, Eq, Ord)
 
-data LH_WorkingSet = LH_WorkingSet (IM.IntMap AS_State) deriving stock (Show)
+data LH_WorkingSet = LH_WorkingSet (IM.IntMap AS_State) deriving stock (Show, Eq)
 
-data LH_NNLSWorkingData = LH_NNLSWorkingData { _lhX :: !(LA.Vector Double), _lhWS :: !LH_WorkingSet }
+data LH_NNLSWorkingData = LH_NNLSWorkingData { _lhX :: !(LA.Vector Double), _lhWS :: !LH_WorkingSet, _lhAtb :: Maybe (LA.Vector Double) }
 
 type ASMLH m = ASM LH_NNLSWorkingData m
 
@@ -122,12 +125,14 @@ data NNLSStep a = NNLS_Optimal (LA.Vector Double)
                 | NNLS_Error Text
                 | NNLS_Continue a
 
-data NNLS_LHContinue = LH_NewFeasible
+data NNLS_LHContinue = LH_Setup
+                     | LH_NewFeasible
                      | LH_TestW (LA.Vector Double)
+                     | LH_GaussSeidel Int
                      | LH_NewInfeasible (LA.Vector Double)
                      | LH_UnconstrainedSolve (Maybe (LA.Vector Double, Int))
 
-data EqualityConstrainedSolver = SolveLS | SolveSVD
+data EqualityConstrainedSolver = SolveLS | SolveSVD deriving stock (Show, Eq)
 
 Lens.makeLenses ''AlgoData
 Lens.makeLenses ''LH_NNLSWorkingData

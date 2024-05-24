@@ -30,6 +30,7 @@ import qualified Data.List as L
 import qualified Control.Monad.RWS.Strict as RWS
 import qualified Control.Monad.Except as RWS
 import qualified Control.Error as X
+import Data.Maybe (fromJust)
 --import Debug.Trace (trace)
 
 -- after Chen & Ye: https://arxiv.org/pdf/1101.6081
@@ -45,7 +46,7 @@ projectToSimplex y = VS.fromList $ fmap (\x -> max 0 (x - tHat)) yL
     go k = let tk = t k in if tk > sY L.!! k then tk else go (k - 1)
 
 initialNNLSWorkingDataLH :: Int -> LH_NNLSWorkingData
-initialNNLSWorkingDataLH n = LH_NNLSWorkingData initialX initialWorkingSet where
+initialNNLSWorkingDataLH n = LH_NNLSWorkingData initialX initialWorkingSet Nothing where
   initialX = VS.replicate n 0
   initialWorkingSet = LH_WorkingSet $ IM.fromList $ zip [0..(n - 1)] (L.replicate n ASZero)
 
@@ -77,14 +78,14 @@ nnlsAlgo a b lf = do
         pure x
       go (NNLS_Error msg) = getIters >>= \n -> throwASM $ "ActiveSet.findOptimal (after " <> show n <> " steps): " <> msg
       go (NNLS_Continue c) = do
-        iters <- getIters
+        iters' <- getIters
         maxIters <- RWS.asks cfgMaxIters
-        if iters < maxIters
+        if iters' < maxIters
           then lhNNLSStep lf a b c >>= go
           else use (algoData . lhX)
-               >>= \x -> throwASM $ "ActiveSet.optimalNNLS maxIters (" <> show iters <> ") reached: x=" <> show x
+               >>= \x -> throwASM $ "ActiveSet.optimalNNLS maxIters (" <> show iters' <> ") reached: x=" <> show x
 
-  go $ NNLS_Continue LH_NewFeasible
+  go $ NNLS_Continue LH_Setup
 
 nnlsCheckDims :: Monad m
               => LA.Matrix Double
@@ -119,9 +120,9 @@ ldpAlgo ic lf = do
       f = VS.fromList (L.replicate n 0 <> [1])
   logASM lf $ "Solving LDP" --"with G=" <> show g <> "\n h=" <> show h
   u <- nnlsAlgo e f lf
-  eps <- RWS.asks cfgEpsilon
+  epsilon <- RWS.asks cfgEpsilon
   let r = e #> u - f
-  if LA.norm_2 r < eps
+  if LA.norm_2 r < epsilon
     then throwASM "optimalLDP: incompatible inequalities!"
     else (do
              let (x', vnp1) = VS.splitAt n r
@@ -223,21 +224,24 @@ originalE :: LSI_E -> LA.Matrix Double
 originalE (Original e) = e
 originalE (Precomputed _ _ e) = e
 
-precomputeFromE :: Monad m => ActiveSetConfiguration -> LA.Matrix Double -> X.ExceptT Text m LSI_E
-precomputeFromE config e = do
+precomputeFromE' :: Monad m => ActiveSetConfiguration -> LA.Matrix Double -> X.ExceptT Text m LSI_E
+precomputeFromE' config e = do
   let (m2, n) = LA.size e
       (q, s, k) = LA.svd e
       rank = LA.ranksv (cfgEpsilon config) (min m2 n) (VS.toList s)
-  when (rank < n) $ X.throwE "precomputeFromEG: given matrix E has rank < cols(E)"
+  when (rank < n) $ X.throwE "precomputeFromE: given matrix E has rank < cols(E)"
   let rInv = LA.diag $ VS.map (1 /) $ VS.slice 0 n s
       kRinv = k LA.<> rInv
       q1 = LA.subMatrix (0, 0) (m2, n) q
   pure $ Precomputed kRinv q1 e
 
+precomputeFromE :: Monad m => ActiveSetConfiguration -> LA.Matrix Double -> m (Either Text LSI_E)
+precomputeFromE config e = X.runExceptT $ precomputeFromE' config e
+
 lsiICAndZtoX :: Monad m
              => ActiveSetConfiguration -> LSI_E -> LA.Vector Double -> InequalityConstraints
              -> X.ExceptT Text m (InequalityConstraints, LA.Vector Double -> LA.Vector Double)
-lsiICAndZtoX config (Original e) f ic = precomputeFromE config e >>= \pc -> lsiICAndZtoX config pc f ic
+lsiICAndZtoX config (Original e) f ic = precomputeFromE' config e >>= \pc -> lsiICAndZtoX config pc f ic
 lsiICAndZtoX _ (Precomputed kRinv q1 _) f ic = do
   let (IC g h) = convertInequalityConstraints ic
       f1 = LA.tr q1 #> f
@@ -258,17 +262,41 @@ workingIS :: LH_WorkingSet -> (IS.IntSet, IS.IntSet)
 workingIS (LH_WorkingSet im) = let (fim, zim) = IM.partition (== ASFree) im in (IM.keysSet fim, IM.keysSet zim)
 
 -- keep only columns in the index set
-subMatrix :: IS.IntSet -> LA.Matrix Double -> LA.Matrix Double
-subMatrix is m =  m LA.?? (LA.All, LA.Pos (LA.idxs $ IS.toList is))
+subMatrixC :: IS.IntSet -> LA.Matrix Double -> LA.Matrix Double
+subMatrixC is =  subMatrixCL (IS.toList is)
+{-# INLINEABLE subMatrixC #-}
+
+subMatrixCL :: [Int] -> LA.Matrix Double -> LA.Matrix Double
+subMatrixCL is m =  m LA.?? (LA.All, LA.Pos (LA.idxs is))
+{-# INLINEABLE subMatrixCL #-}
+
+-- keep only columns in the index set
+subMatrixR :: IS.IntSet -> LA.Matrix Double -> LA.Matrix Double
+subMatrixR is =  subMatrixRL (IS.toList is)
+{-# INLINEABLE subMatrixR #-}
+
+subMatrixRL :: [Int] -> LA.Matrix Double -> LA.Matrix Double
+subMatrixRL is m =  m LA.?? (LA.Pos (LA.idxs is), LA.All)
+{-# INLINEABLE subMatrixRL #-}
 
 -- keep only elts in the index set
 subVector :: IS.IntSet -> LA.Vector Double -> LA.Vector Double
 subVector is = VS.ifilter (\n _ -> IS.member n is)
+{-# INLINEABLE subVector #-}
+
+subVectorL :: [Int] -> LA.Vector Double -> LA.Vector Double
+subVectorL is = subVector (IS.fromList is)
+{-# INLINEABLE subVectorL #-}
 
 -- add zeroes at the indices given
 addZeroesV :: IS.IntSet -> LA.Vector Double -> LA.Vector Double
 addZeroesV is v = VS.fromList $ IS.foldl' f (VS.toList v) is where
   f l i = let (h, t) = L.splitAt i l in h <> (0 : t)
+{-# INLINEABLE addZeroesV #-}
+
+addZeroesVL :: [Int] -> LA.Vector Double -> LA.Vector Double
+addZeroesVL is = addZeroesV (IS.fromList is)
+{-# INLINEABLE addZeroesVL #-}
 
 modifyAlgoData :: Monad m => (a -> a) -> ASM a m ()
 modifyAlgoData f = algoData %= f
@@ -290,13 +318,14 @@ logASM :: Monad m => LogF m -> Text -> ASM a m ()
 logASM lf t = RWS.asks cfgLogging >>= \case
   LogAll -> ASM $ lift $ lift $ lf t
   LogOnError -> RWS.tell $ Seq.singleton t
+  _ -> pure ()
 
 logStepLH_NNLS :: Monad m => LogF m -> Text ->  ASMLH m ()
 logStepLH_NNLS lf t = do
-  LH_NNLSWorkingData x _ <- getAlgoData
+  x <- use (algoData . lhX)
   (freeIS, zeroIS) <- indexSets
   getIters >>= \n -> logASM lf $ t <> " (n=" <> show n <> "): "
-                     <> "; x=" <> show x
+                     <> "; xFree=" <> show (subVector freeIS x)
                      <> "; freeI=" <> show (IS.toList freeIS) <> "; zeroI=" <> show (IS.toList zeroIS)
 
 indexSets :: Monad m => ASMLH m (IS.IntSet, IS.IntSet)
@@ -310,9 +339,32 @@ lhNNLSStep logF a b lhc = do
       getX = use (algoData. lhX)
       getWS = use (algoData. lhWS)
   case lhc of
+    LH_Setup -> do
+      algoData . lhAtb %= const (Just $ LA.tr a #> b)
+      start <- RWS.asks cfgStart
+      pure $ case start of
+               StartZero -> NNLS_Continue LH_NewFeasible
+               StartGS -> NNLS_Continue (LH_GaussSeidel 1)
+    LH_GaussSeidel n -> do
+      logStep "Gauss-Seidel"
+      x <- getX
+      ws <- use (algoData . lhWS)
+      x' <- ASM $ RWS.mapExceptT id $ gaussSeidel a b x
+      epsilon <- RWS.asks cfgEpsilon
+      let ws' = workingSetFromX epsilon x'
+          (freeIS', _) = workingIS ws'
+      updateX x'
+      assign (algoData . lhWS) ws'
+      pure $ if ws' == ws || n == 1
+             then if IS.size freeIS' == 0
+                  then NNLS_Continue LH_NewFeasible -- gotta free something before we try solving
+                  else NNLS_Continue (LH_UnconstrainedSolve Nothing)
+             else NNLS_Continue (LH_GaussSeidel $ n - 1)
+
     LH_NewFeasible -> do
       logStep "Feasible"
-      let w x = LA.tr a LA.#> (b - a LA.#> x)
+      atb <- fromJust <$> use (algoData . lhAtb)
+      let w x = atb - LA.tr a #> a #> x --LA.tr a LA.#> (b - a LA.#> x)
       use (algoData . lhX) >>= pure . NNLS_Continue . LH_TestW . w
     LH_TestW w  -> do
       logStep "TestW"
@@ -333,7 +385,7 @@ lhNNLSStep logF a b lhc = do
       logStep "UnconstrainedSolve"
       log $ "mW=" <> show mW
       (freeIS, zeroIS) <- indexSets
-      let newA = subMatrix freeIS a
+      let newA = subMatrixC freeIS a
 --      log $ "newA=" <> show newA
       solver <- RWS.asks cfgSolver
       let lsSolution = case solver of
@@ -378,6 +430,30 @@ lhNNLSStep logF a b lhc = do
           pure $ NNLS_Continue $ LH_UnconstrainedSolve Nothing
 
 
+workingSetFromX :: Double -> LA.Vector Double -> LH_WorkingSet
+workingSetFromX epsilon x = LH_WorkingSet im where
+  st y = if abs y < epsilon then ASZero else ASFree
+  st' (k, y) = (k, st y)
+  im = IM.fromList $ fmap st' $ zip [0..] (VS.toList x)
+
+residuals :: LA.Matrix Double -> LA.Vector Double -> LA.Vector Double -> LA.Vector Double
+residuals a b x = a #> x - b
+
+gradient :: LA.Matrix Double -> LA.Vector Double -> LA.Vector Double -> LA.Vector Double
+gradient a b x = LA.tr a #> residuals a b x
+
+gaussSeidel :: Monad m => LA.Matrix Double -> LA.Vector Double -> LA.Vector Double -> X.ExceptT Text m (LA.Vector Double)
+gaussSeidel a b x = do
+  let sumSqA = VS.fromList $ (\y -> y * y) . LA.norm_2 <$> LA.toColumns a
+      q = VS.zipWith (/) (gradient a b x) sumSqA
+      g a b = if b > 0 then min 1 (a / b) else 1
+      lambdas = VS.zipWith g x q
+--      mLambda = viaNonEmpty head $ sortOn negate $ filter (\y -> y >= 0 && y <= 1) $ VS.toList lambdas
+{-  l <- case mLambda of
+    Nothing -> X.throwE "No viable lambda in Gauss-Seidel"
+    Just l -> pure l
+-}
+  pure $ x - VS.zipWith (*) lambdas q
 
 data WorkingData a = WorkingData { iters:: !Int, curX :: !(LA.Vector Double), stepData :: !a} deriving stock (Show)
 -- a carries algorithm dependent extra data for next step
@@ -420,7 +496,6 @@ getWorkingSet eps (IC a b) u =  f $ VS.foldl' g (0, mempty, mempty) $ (a #> u) -
       | otherwise = (n + 1, a', v') -- inactive
     f (_, a', _) = WorkingSet a'
 
-
 addToWorkingSet :: Int -> WorkingSet -> WorkingSet
 addToWorkingSet k = WorkingSet . S.insert k . workingSet
 
@@ -451,7 +526,6 @@ vecIndexSmallest v = (indexSmallest,) <$> mSmallest where
     Nothing -> (n +1, n, Just x)
     Just smallest -> if x < smallest then (n + 1, n, Just x) else (n + 1, sIndex, Just smallest)
   (_, indexSmallest, mSmallest) = VS.foldl' f (0, 0, Nothing) v
-
 
 largestLambdaIndex :: WorkingSet -> LA.Vector Double -> Maybe Int
 largestLambdaIndex (WorkingSet s) l = safeIndex largestWorking (S.toList s) where
