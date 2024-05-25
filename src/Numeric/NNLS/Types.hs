@@ -132,7 +132,7 @@ data NNLS_LHContinue = LH_Setup
                      | LH_NewInfeasible (LA.Vector Double)
                      | LH_UnconstrainedSolve (Maybe (LA.Vector Double, Int))
 
-data EqualityConstrainedSolver = SolveLS | SolveSVD deriving stock (Show, Eq)
+data EqualityConstrainedSolver = SolveLS | SolveSVD | SolveQR deriving stock (Show, Eq)
 
 Lens.makeLenses ''AlgoData
 Lens.makeLenses ''LH_NNLSWorkingData

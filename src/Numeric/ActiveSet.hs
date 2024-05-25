@@ -15,6 +15,7 @@ module Numeric.ActiveSet
 
 
 import Numeric.NNLS.Types
+import Numeric.NNLS.IncrementalQR as IQR
 import qualified Numeric.LinearAlgebra as LA
 import Numeric.LinearAlgebra ((|||), (===), (#>), (<#))
 import qualified Data.Set as S
@@ -391,6 +392,7 @@ lhNNLSStep logF a b lhc = do
       let lsSolution = case solver of
             SolveLS -> LA.flatten $ LA.linearSolveLS newA (LA.asColumn b)
             SolveSVD -> LA.flatten $ LA.linearSolveSVD newA (LA.asColumn b)
+            SolveQR -> fst $ IQR.incrementalSolveOD (New newA) b
           g (w, t) = if addZeroesV zeroIS lsSolution VS.! t < 0 then Just (w ,t) else Nothing
       nnlsIterPlusOne
       case mW >>= g of
