@@ -28,3 +28,24 @@ incrementalSolveOD (New a) b =
       iTR = LA.triSolve LA.Upper tR (LA.ident $ LA.rows tR)
   in incrementalSolveOD (Same $ PrevQR tQ tR iTR) b
 incrementalSolveOD (Same pqr@(PrevQR tQ _ iR)) b = (iR #> LA.tr tQ #> b, pqr)
+
+
+{-
+-- Rather than storing \theta, we store cos(\theta) and sin(\theta)
+-- since we can compute them directly
+data GivensRotation = GivensRotation Int Int Double Double
+
+givensCS :: Double -> Double -> (Double, Double)
+givensCS a b
+  | b == 0 = (1, 0)
+  | abs b > abs a = let tau = negate a / b; s = 1 / sqrt ( 1 + tau^2) in (s * tau, s)
+  | otherwise = let tau = negate a / b; c = 1 / sqrt ( 1 + tau^2) in (c, c * tau)
+{-# INLINEABLE givensCS #-}
+
+zeroColAtkPlusOneG :: Int -> Int -> LA.Matrix Double -> GivensRotation
+zeroColAtkPlusOneG col k m =
+  let col = m LA.! col
+      (c, s) = givensCS (col LA.! k) (col LA.! (k + 1))
+  in GivensRotation k (k + 1) c s
+
+-}
