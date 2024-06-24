@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE Strict #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
@@ -23,6 +24,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.IntMap as IM
 import qualified Data.IntSet as IS
 import qualified Data.Vector.Storable as VS
+import qualified Data.Vector.Unboxed as VU
 import qualified Control.Foldl as FL
 import qualified Control.Lens as Lens
 import Control.Lens (view, views, use, uses, set, assign, over, (%=))
@@ -289,10 +291,32 @@ subVectorL :: [Int] -> LA.Vector Double -> LA.Vector Double
 subVectorL is = subVector (IS.fromList is)
 {-# INLINEABLE subVectorL #-}
 
+data AZAcc = AZAcc { azNextStart :: !Int, azSoFar :: !Int, azVecs :: ![VS.Vector Double]}
+
+-- add zeroes at the indices given
+addZeroesV' :: IS.IntSet -> LA.Vector Double -> LA.Vector Double
+addZeroesV' is v = g $ IS.foldl' f (AZAcc 0 0 []) is where
+  f (AZAcc s sf vecs) i = AZAcc s' sf' vecs'
+    where l = i - sf
+          s' = s + l
+          sf' = sf + l + 1
+          vecs' = VS.singleton 0 : VS.unsafeSlice s l v : vecs
+  g (AZAcc s _ vecs) = VS.concat . reverse $ (VS.unsafeDrop s v : vecs)
+{-# INLINEABLE addZeroesV' #-}
+{-
+addZeroesV'' :: IS.IntSet -> VS.Vector Double -> VS.Vector Double
+addZeroesV'' v xs = VS.convert $ VU.foldMap f $ VU.indexed $ VU.convert xs
+  where
+    f :: (Int, Double) -> VU.Vector Double
+    f (idx, x)
+      | IS.member idx v = VU.fromList [0, x]
+      | otherwise = VU.singleton x
+{-# INLINEABLE addZeroesV'' #-}
+-}
 -- add zeroes at the indices given
 addZeroesV :: IS.IntSet -> LA.Vector Double -> LA.Vector Double
-addZeroesV is v = VS.fromList $ IS.foldl' f (VS.toList v) is where
-  f l i = let (h, t) = L.splitAt i l in h <> (0 : t)
+addZeroesV is v = VS.unfoldrExactN (IS.size is + VS.length v) f (0, 0) where
+  f (si, di) = if IS.member di is then (0, (si, di + 1)) else (v VS.! si, (si + 1, di + 1))
 {-# INLINEABLE addZeroesV #-}
 
 addZeroesVL :: [Int] -> LA.Vector Double -> LA.Vector Double
@@ -315,19 +339,25 @@ getIters = use algoIters
 nnlsIterPlusOne :: Monad m => ASM a m ()
 nnlsIterPlusOne = algoIters %= (+1) >> pure ()
 
+logASM' :: Monad m => Logging -> LogF m ->  Text -> ASM a m ()
+logASM' LogAll lf t =  ASM $ lift $ lift $ lf t
+logASM' LogOnError _ ~t = RWS.tell $ Seq.singleton t
+logASM' LogNone _ ~_ = pure ()
+
 logASM :: Monad m => LogF m -> Text -> ASM a m ()
-logASM lf t = RWS.asks cfgLogging >>= \case
-  LogAll -> ASM $ lift $ lift $ lf t
-  LogOnError -> RWS.tell $ Seq.singleton t
-  _ -> pure ()
+logASM lf ~t = RWS.asks cfgLogging >>= \l -> logASM' l lf t
 
 logStepLH_NNLS :: Monad m => LogF m -> Text ->  ASMLH m ()
-logStepLH_NNLS lf t = do
-  x <- use (algoData . lhX)
-  (freeIS, zeroIS) <- indexSets
-  getIters >>= \n -> logASM lf $ t <> " (n=" <> show n <> "): "
-                     <> "; xFree=" <> show (subVector freeIS x)
-                     <> "; freeI=" <> show (IS.toList freeIS) <> "; zeroI=" <> show (IS.toList zeroIS)
+logStepLH_NNLS lf ~t =  RWS.asks cfgLogging >>= \case
+  LogNone -> pure ()
+  l -> do
+    x <- use (algoData . lhX)
+    (freeIS, zeroIS) <- indexSets
+    n <- getIters
+    logASM' l lf $ t <> " (n=" <> show n <> "): "
+      <> "; xFree=" <> show (subVector freeIS x)
+      <> "; freeI=" <> show (IS.toList freeIS)
+      <> "; zeroI=" <> show (IS.toList zeroIS)
 
 indexSets :: Monad m => ASMLH m (IS.IntSet, IS.IntSet)
 indexSets = uses (algoData . lhWS) workingIS
@@ -342,10 +372,9 @@ lhNNLSStep logF a b lhc = do
   case lhc of
     LH_Setup -> do
       algoData . lhAtb %= const (Just $ LA.tr a #> b)
-      start <- RWS.asks cfgStart
-      pure $ case start of
-               StartZero -> NNLS_Continue LH_NewFeasible
-               StartGS -> NNLS_Continue (LH_GaussSeidel 1)
+      RWS.asks cfgStart >>= pure . \case
+        StartZero -> NNLS_Continue LH_NewFeasible
+        StartGS -> NNLS_Continue (LH_GaussSeidel 1)
     LH_GaussSeidel n -> do
       logStep "Gauss-Seidel"
       x <- getX
@@ -482,9 +511,9 @@ type NNLSStepFunction a m = (ActiveSetConfiguration m
 
 
 isFeasible :: Double -> EqualityConstraints -> IC -> LA.Vector Double -> Bool
-isFeasible eps (EqualityConstraints g h) (IC c d) x =  eV && iV where
-  eV = (VS.find ((> eps) . abs) $ (g #> x) - h) == Nothing
-  iV = (VS.find ((< negate eps)) $ (c #> x) - d) == Nothing
+isFeasible eps' ec ic x =  isEqual eps' ec x && isLowerBound eps' ic x
+--  eV = isNothing (VS.find ((> eps') . abs) $ (g #> x) - h)
+--  iV = isNothing (VS.find ((< negate eps')) $ (c #> x) - d)
 
 newtype WorkingSet = WorkingSet { workingSet :: Set Int} deriving stock (Show)
 

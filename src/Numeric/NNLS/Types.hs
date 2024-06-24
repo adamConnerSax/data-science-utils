@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE Strict #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 module Numeric.NNLS.Types where
@@ -16,6 +17,7 @@ import qualified Data.Sequence as Seq
 import qualified Numeric.LinearAlgebra as LA
 import Numeric.LinearAlgebra ((|||), (===), (#>), (<#))
 import qualified Data.Vector.Storable as VS
+import qualified Control.Monad
 
 data AlgoData a = AlgoData { _algoIters :: !Int, _algoData :: !a} deriving stock (Show)
 
@@ -26,7 +28,7 @@ newtype ASM a m x = ASM { unASM :: X.ExceptT Text (RWS.RWST ActiveSetConfigurati
   deriving newtype (RWS.MonadReader ActiveSetConfiguration, RWS.MonadWriter (Seq.Seq Text), RWS.MonadState (AlgoData a))
 
 throwASM :: Monad m => Text -> ASM a m x
-throwASM = ASM . X.throwE
+throwASM ~t = ASM . X.throwE $ t
 
 type LogF m = Text -> m ()
 
@@ -36,11 +38,9 @@ runASM log config a toM =
       runRWST rwst = RWS.runRWST rwst config (AlgoData 0 a)
       handleResult :: (Either Text x, AlgoData a, Seq.Seq Text) -> m (Either Text x, Int)
       handleResult (e, ad, sText) = do
-        if (cfgLogging config == LogOnError)
-          then case e of
-                 Left _ -> traverse_ log sText >> pure ()
+        when (cfgLogging config == LogOnError) $ case e of
+                 Left _ -> void (traverse_ log sText)
                  Right _ -> pure ()
-          else pure ()
         pure (e, _algoIters ad)
   in  (runRWST . X.runExceptT . unASM $ toM log) >>= handleResult
 
@@ -88,25 +88,28 @@ convertInequalityConstraints (SimpleBounds l u ) = IC a b where
 convertInequalityConstraints (MatrixUpper a b) = IC (negate a) (negate b)
 convertInequalityConstraints (MatrixLower a b) = IC a b
 
+isEqual :: Double -> EqualityConstraints -> LA.Vector Double -> Bool
+isEqual eps' (EqualityConstraints a b) x = isNothing (VS.find ((> eps') . abs) $ (a #> x) - b)
+{-# INLINEABLE isEqual #-}
+
+isLowerBound :: Double -> IC -> LA.Vector Double -> Bool
+isLowerBound eps' (IC c d) x = isNothing (VS.find ((< negate eps')) $ (c #> x) - d)
+{-# INLINEABLE isLowerBound #-}
+
 checkConstraints' :: Text -> Double -> IC -> LA.Vector Double -> Either Text ()
-checkConstraints' t eps' (IC g h) x = traverse_ checkOne [0..(LA.size x - 1)] where
-  gRows = LA.toRows g
-  checkOne k =
-    let
-      gRowk = gRows L.!! k
-      hk = h VS.! k
-      gRowk_x = gRowk `LA.dot` x
-    in case gRowk_x >= hk - eps' || gRowk_x >= hk + eps' of
-      True -> pure ()
-      False -> Left $ "checkConstraints " <> t <> " failed: x=" <> show x
-               <> "; G[" <> show k <> ",]=" <> show gRowk
-               <> "; h[" <> show k <> "]=" <> show hk
-               <> "; G[" <> show k <> ",]x = " <> show gRowk_x <> " < " <> show hk
+checkConstraints' t eps' ic@(IC g h) x =
+  if isLowerBound eps' ic x  then Right () else Left msg
+  where
+    ~msg = "checkConstraints " <> t <> " failed: x=" <> show x
+           <> "; G=" <> show g
+           <> "; h=" <> show h
+           <> "; Gx = " <> show (g LA.#> x)
+{-# INLINEABLE checkConstraints' #-}
 
 checkConstraints :: Text -> Double -> InequalityConstraints -> LA.Vector Double -> Either Text ()
 checkConstraints t eps' (SimpleBounds l u) x = do
   checkConstraints' t eps' (IC (LA.ident $ LA.size x) l) x
-  checkConstraints' t eps' (IC (negate $ LA.ident $ LA.size x) l) $ negate x
+  checkConstraints' t eps' (IC (negate $ LA.ident $ LA.size x) u) $ negate x
 checkConstraints t eps' (MatrixUpper g h) x = checkConstraints t eps' (MatrixLower (negate g) (negate h)) x
 checkConstraints t eps' (MatrixLower g h) x = checkConstraints' t eps' (IC g h) x
 
