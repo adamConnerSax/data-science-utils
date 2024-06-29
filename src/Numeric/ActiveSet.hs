@@ -19,6 +19,7 @@ import Numeric.NNLS.Types
 import Numeric.NNLS.IncrementalQR as IQR
 import qualified Numeric.LinearAlgebra as LA
 import Numeric.LinearAlgebra ((|||), (===), (#>), (<#))
+import qualified Data.List as L
 import qualified Data.Set as S
 import qualified Data.Sequence as Seq
 import qualified Data.IntMap as IM
@@ -49,7 +50,7 @@ projectToSimplex y = VS.fromList $ fmap (\x -> max 0 (x - tHat)) yL
     go k = let tk = t k in if tk > sY L.!! k then tk else go (k - 1)
 
 initialNNLSWorkingDataLH :: Int -> LH_NNLSWorkingData
-initialNNLSWorkingDataLH n = LH_NNLSWorkingData initialX initialWorkingSet Nothing where
+initialNNLSWorkingDataLH n = LH_NNLSWorkingData initialX initialWorkingSet Nothing Nothing where
   initialX = VS.replicate n 0
   initialWorkingSet = LH_WorkingSet $ IM.fromList $ zip [0..(n - 1)] (L.replicate n ASZero)
 
@@ -100,6 +101,8 @@ nnlsCheckDims a b = do
   xLength <- LA.size <$> use (algoData . lhX)
   checkPair "NNLS" (aRows, "rows(A)") (bLength, "length(b)")
   checkPair "NNLS" (aCols, "cols(A)") (xLength, "length(x)")
+  fullRank "a" a
+--  fullColumnRank "a" a
 
 optimalLDP :: forall m . Monad m
            => LogF m
@@ -122,9 +125,10 @@ ldpAlgo ic lf = do
       e = LA.tr g === LA.asRow h
       f = VS.fromList (L.replicate n 0 <> [1])
   logASM lf $ "Solving LDP" --"with G=" <> show g <> "\n h=" <> show h
+  fullRank "E" e
   u <- nnlsAlgo e f lf
   epsilon <- RWS.asks cfgEpsilon
-  let r = e #> u - f
+  let r = (e #> u) - f
   if LA.norm_2 r < epsilon
     then throwASM "optimalLDP: incompatible inequalities!"
     else (do
@@ -141,6 +145,7 @@ ldpCheckDims (IC g h) = do
   let gRows = LA.rows g
       hLength = LA.size h
   checkPair "LDP" (gRows, "rows(G)") (hLength, "length(h)")
+
 
 optimalLSI :: forall m . Monad m
            => LogF m
@@ -161,7 +166,7 @@ lsiAlgo :: forall m . Monad m
         -> ASMLH m (LA.Vector Double)
 lsiAlgo lsiE f ic lf = do
   logASM lf $ "Solving LSI" -- with E=" <> show (originalE lsiE) <> "\n f=" <> show f <> "\nConstraints=" <> show ic
-  lsiCheckDims lsiE f ic
+  lsiCheckDimsAndRank lsiE f ic
   config <- RWS.ask
   (icz, zTox) <- ASM $ RWS.mapExceptT id $ lsiICAndZtoX config lsiE f ic
   z <- ldpAlgo icz lf
@@ -170,8 +175,8 @@ lsiAlgo lsiE f ic lf = do
   logASM lf ("LSI solution: x =" <> show x)
   pure x
 
-lsiCheckDims :: Monad m => LSI_E -> LA.Vector Double -> InequalityConstraints -> ASMLH m ()
-lsiCheckDims lsiE f ic = do
+lsiCheckDimsAndRank :: Monad m => LSI_E -> LA.Vector Double -> InequalityConstraints -> ASMLH m ()
+lsiCheckDimsAndRank lsiE f ic = do
   let (IC g h) = convertInequalityConstraints ic
       e = originalE lsiE
       (eRows, eCols) = LA.size e
@@ -181,12 +186,41 @@ lsiCheckDims lsiE f ic = do
   checkPair "LSI" (eRows, "rows(E)") (fLength, "length(f)")
   checkPair "LSI" (gRows, "rows(G)") (hLength, "length(h)")
   checkPair "LSI" (eCols, "cols(E)") (gCols, "cols(G)")
+  fullColumnRank "E" e
 
 checkPair :: Monad m => Text -> (Int, Text) -> (Int, Text) ->  ASMLH m ()
 checkPair t (n1, t1) (n2, t2) =
   when (n1 /= n2)
   $ throwASM
   $ "Inconsistent dimensions in " <> t <> ": " <> t1 <> "=" <> show n1 <> " /= " <> t2 <> "=" <> show n2
+
+fullColumnRank :: Monad m => Text -> LA.Matrix Double -> ASMLH m ()
+fullColumnRank mT m = do
+  let rank = LA.rank m
+      cols = LA.cols m
+  when (rank < cols) $ throwASM $ "LSI: rank(" <> mT <> ")=" <> show rank <> " < " <> show cols <> "=cols(" <> mT <> ")!"
+
+fullRowRank :: Monad m => Text -> LA.Matrix Double -> ASMLH m ()
+fullRowRank mT m = do
+  let rank = LA.rank m
+      rows = LA.cols m
+  when (rank < rows) $ throwASM $ "LSI: rank(" <> mT <> ")=" <> show rank <> " < " <> show rows <> "=rows(" <> mT <> ")!"
+
+
+data MDir = Rows | Cols | Square deriving (Show, Eq)
+
+fullRank :: Monad m => Text -> LA.Matrix Double -> ASMLH m ()
+fullRank mT m = do
+  let (rows, cols) = LA.size m
+  let minDir = case compare rows cols of
+        EQ -> Square
+        LT -> Rows
+        GT -> Cols
+      fullRankN = min rows cols
+      rank = LA.rank m
+  when (rank < fullRankN)
+    $ throwASM
+    $ "LSI: rank(" <> mT <> ")=" <> show rank <> " < " <> show fullRankN <> "=smaller dimension (" <> show minDir <>") of" <> mT <> "!"
 
 
 {-
@@ -273,7 +307,7 @@ subMatrixCL :: [Int] -> LA.Matrix Double -> LA.Matrix Double
 subMatrixCL is m =  m LA.?? (LA.All, LA.Pos (LA.idxs is))
 {-# INLINEABLE subMatrixCL #-}
 
--- keep only columns in the index set
+-- keep only rows in the index set
 subMatrixR :: IS.IntSet -> LA.Matrix Double -> LA.Matrix Double
 subMatrixR is =  subMatrixRL (IS.toList is)
 {-# INLINEABLE subMatrixR #-}
@@ -281,6 +315,14 @@ subMatrixR is =  subMatrixRL (IS.toList is)
 subMatrixRL :: [Int] -> LA.Matrix Double -> LA.Matrix Double
 subMatrixRL is m =  m LA.?? (LA.Pos (LA.idxs is), LA.All)
 {-# INLINEABLE subMatrixRL #-}
+
+subMatrixL :: [Int] -> LA.Matrix Double -> LA.Matrix Double
+subMatrixL is m =  let idxs = LA.idxs is in m LA.?? (LA.Pos idxs, LA.Pos idxs)
+{-# INLINEABLE subMatrixL #-}
+
+subMatrix :: IS.IntSet -> LA.Matrix Double -> LA.Matrix Double
+subMatrix is m =  let idxs = LA.idxs (IS.toList is) in m LA.?? (LA.Pos idxs, LA.Pos idxs)
+{-# INLINEABLE subMatrix #-}
 
 -- keep only elts in the index set
 subVector :: IS.IntSet -> LA.Vector Double -> LA.Vector Double
@@ -368,10 +410,12 @@ lhNNLSStep logF a b lhc = do
       logStep = logStepLH_NNLS logF
       updateX = assign (algoData . lhX)
       getX = use (algoData. lhX)
-      getWS = use (algoData. lhWS)
+--      getWS = use (algoData. lhWS)
+  epsilon <- RWS.asks cfgEpsilon
   case lhc of
     LH_Setup -> do
       algoData . lhAtb %= const (Just $ LA.tr a #> b)
+      algoData . lhAtA %= const (Just $ LA.tr a <> a)
       RWS.asks cfgStart >>= pure . \case
         StartZero -> NNLS_Continue LH_NewFeasible
         StartGS -> NNLS_Continue (LH_GaussSeidel 1)
@@ -379,8 +423,10 @@ lhNNLSStep logF a b lhc = do
       logStep "Gauss-Seidel"
       x <- getX
       ws <- use (algoData . lhWS)
+--      ata <- fromJust <$> use (algoData . lhAtA)
+--      atb <- fromJust <$> use (algoData . lhAtb)
+--      let x' = gaussSeidelIteration ata atb x
       x' <- ASM $ RWS.mapExceptT id $ gaussSeidel a b x
-      epsilon <- RWS.asks cfgEpsilon
       let ws' = workingSetFromX epsilon x'
           (freeIS', _) = workingIS ws'
       updateX x'
@@ -393,14 +439,13 @@ lhNNLSStep logF a b lhc = do
 
     LH_NewFeasible -> do
       logStep "Feasible"
-      atb <- fromJust <$> use (algoData . lhAtb)
-      let w x = atb - LA.tr a #> a #> x --LA.tr a LA.#> (b - a LA.#> x)
+--      atb <- fromJust <$> use (algoData . lhAtb)
+      let w x = LA.tr a LA.#> (b - a LA.#> x)
       use (algoData . lhX) >>= pure . NNLS_Continue . LH_TestW . w
     LH_TestW w  -> do
       logStep "TestW"
       log $ "w=" <> show w
       (freeIS, zeroIS) <- indexSets
-      epsilon <- RWS.asks cfgEpsilon
       let emptyZ = IS.size zeroIS == 0
           wAtZeros = subVector zeroIS w
           allNegW =  isNothing $ VS.find (> epsilon) wAtZeros
@@ -415,49 +460,60 @@ lhNNLSStep logF a b lhc = do
       logStep "UnconstrainedSolve"
       log $ "mW=" <> show mW
       (freeIS, zeroIS) <- indexSets
-      let newA = subMatrixC freeIS a
 --      log $ "newA=" <> show newA
       solver <- RWS.asks cfgSolver
-      let lsSolution = case solver of
-            SolveLS -> LA.flatten $ LA.linearSolveLS newA (LA.asColumn b)
-            SolveSVD -> LA.flatten $ LA.linearSolveSVD newA (LA.asColumn b)
-            SolveQR -> fst $ IQR.incrementalSolveOD (New newA) b
-          g (w, t) = if addZeroesV zeroIS lsSolution VS.! t < 0 then Just (w ,t) else Nothing
+      lsSolution <- case solver of
+        SolveSq -> do
+          ata <- fromJust <$> use (algoData . lhAtA)
+          atb <- fromJust <$> use (algoData . lhAtb)
+          let newAtA = subMatrix freeIS ata
+              newAtb = subVector freeIS atb
+          case LA.linearSolve newAtA (LA.asColumn newAtb) of
+            Nothing -> throwASM $ "Singular A'A in UnconstrainedSolve!" <> show newAtA
+            Just s -> pure $ LA.flatten s
+        SolveLS -> do
+          let newA = subMatrixC freeIS a
+          pure $ LA.flatten $ LA.linearSolveLS newA (LA.asColumn b)
+        SolveSVD -> do
+          let newA = subMatrixC freeIS a
+          pure $ LA.flatten $ LA.linearSolveSVD newA (LA.asColumn b)
+        SolveQR -> throwASM "SolveQR not supported." --fst $ IQR.incrementalSolveOD (New newAtA) newAtb
+      let solWZeros = addZeroesV zeroIS lsSolution
+          g (w, t) = if solWZeros VS.! t < negate epsilon then Just (w ,t) else Nothing
       nnlsIterPlusOne
       case mW >>= g of
         Just (w, t) -> do
-          log $ "solution=" <> show (addZeroesV zeroIS lsSolution) <> " is < 0 at index of max W. Zeroing W there and trying again."
+          log $ "solution=" <> show solWZeros <> " is < 0 at index of max W. Zeroing W there and trying again."
           pure $ NNLS_Continue $ LH_TestW (w VS.// [(t, 0)])
         Nothing ->  case vecIndexSmallest lsSolution of
                       Nothing -> pure $ NNLS_Error "lhNNLSStep: vecIndexSmallest returned Nothing. Empty lsSolution?"
-                      Just (_, smallest) -> if smallest > 0
-                        then updateX (addZeroesV zeroIS lsSolution) >> pure (NNLS_Continue LH_NewFeasible)
+                      Just (_, smallest) -> if smallest > negate epsilon
+                        then updateX solWZeros >> pure (NNLS_Continue LH_NewFeasible)
                         else pure $ NNLS_Continue $ LH_NewInfeasible lsSolution
     LH_NewInfeasible zF -> do
       logStep "Infeasible"
       log $ "z=" <> show zF
       (freeIS, zeroIS) <- indexSets
       x <- getX
-      LH_WorkingSet ws <- getWS
+--      LH_WorkingSet ws <- getWS
       let xF = subVector freeIS x
           alphaF = VS.zipWith (\xx zz -> xx / (xx - zz)) xF zF
           s = zip3 (VS.toList alphaF) (VS.toList zF) (VS.toList xF)
           fstS (q, _, _) = q
           sndS (_, q, _) = q
       log $ "[(alpha, z, x)]=" <> show s
-      let s' = sortOn fstS $ filter ((<= 0) . sndS) s
+      let s' = sortOn fstS $ filter ((<= epsilon) . sndS) s
       log $ "sorted [(alpha, z<=0, x)]=" <> show s'
       let mAlpha = fstS <$> viaNonEmpty head s'
       case mAlpha of
         Nothing -> pure $ NNLS_Error "lhNNLSStep:Empty list in alpha finding step in LH_NewInFeasible"
         Just alpha -> do
           log $ "alpha=" <> show alpha
-          eps <- RWS.asks cfgEpsilon
+          when (alpha > 1 || alpha <= 0) $ throwASM "alpha issue!"
           let x' = x + VS.map (* alpha) (addZeroesV zeroIS zF - x)
-              newZeroIs = fmap snd $ filter ((< eps) . abs . fst) $ zip (VS.toList x') [0..]
+              newZeroIs = fmap snd $ filter ((< epsilon) . fst) $ zip (VS.toList x') [0..]
           updateX x'
           algoData . lhWS %= toState ASZero newZeroIs
-          when (alpha >= 1 || alpha <= 0) $ throwASM "alpha issue!"
           pure $ NNLS_Continue $ LH_UnconstrainedSolve Nothing
 
 
@@ -468,7 +524,7 @@ workingSetFromX epsilon x = LH_WorkingSet im where
   im = IM.fromList $ fmap st' $ zip [0..] (VS.toList x)
 
 residuals :: LA.Matrix Double -> LA.Vector Double -> LA.Vector Double -> LA.Vector Double
-residuals a b x = a #> x - b
+residuals a b x = (a #> x) - b
 
 gradient :: LA.Matrix Double -> LA.Vector Double -> LA.Vector Double -> LA.Vector Double
 gradient a b x = LA.tr a #> residuals a b x
@@ -477,7 +533,7 @@ gaussSeidel :: Monad m => LA.Matrix Double -> LA.Vector Double -> LA.Vector Doub
 gaussSeidel a b x = do
   let sumSqA = VS.fromList $ (\y -> y * y) . LA.norm_2 <$> LA.toColumns a
       q = VS.zipWith (/) (gradient a b x) sumSqA
-      g a b = if b > 0 then min 1 (a / b) else 1
+      g a' b' = if b' > 0 then min 1 (a' / b') else 1
       lambdas = VS.zipWith g x q
 --      mLambda = viaNonEmpty head $ sortOn negate $ filter (\y -> y >= 0 && y <= 1) $ VS.toList lambdas
 {-  l <- case mLambda of
@@ -638,7 +694,23 @@ checkDimensions a b (EqualityConstraints g h) (IC c d) x = do
     then Left ("guess vector x is different length (" <> show xRows <> ") than A has cols (" <> show aCols <> ")")
     else Right ()
 
+jacobiOne :: Int -> LA.Vector Double -> Double -> LA.Vector Double -> Double
+jacobiOne k aRow bk x = bk - (ak_dot_x' / aDiag)
+  where
+    aDiag = aRow VS.! k
+    ak_dot_x' = aRow `LA.dot` x - (aDiag * x VS.! k)
 
+jacobiIteration :: LA.Matrix Double -> LA.Vector Double -> LA.Vector Double -> LA.Vector Double
+jacobiIteration a b x0 = VS.fromList $ L.zipWith3 f [0..(LA.rows a - 1)] (LA.toRows a) (VS.toList b)
+  where f k aRow bk = jacobiOne k aRow bk x0
+
+
+gaussSeidelIteration :: LA.Matrix Double -> LA.Vector Double -> LA.Vector Double -> LA.Vector Double
+gaussSeidelIteration a b x0 = FL.fold gsFld $ zip3 [0..(LA.rows a - 1)] (LA.toRows a) (VS.toList b)
+  where
+    initial = x0
+    step gsX (k, aRow, bk) = let xk' = jacobiOne k aRow bk gsX in gsX VS.// [(k, xk')]
+    gsFld = FL.Fold step initial id
 
 
 {-

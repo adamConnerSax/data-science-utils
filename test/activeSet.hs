@@ -3,7 +3,9 @@
 {-# LANGUAGE TypeApplications #-}
 import qualified Numeric.LinearAlgebra as LA
 import qualified Data.Vector.Storable as VS
+import qualified Control.Foldl as FL
 import Numeric.ActiveSet
+import qualified Numeric.NNLS.LH as LH
 import System.CPUTime (getCPUTime)
 import Text.Printf (printf)
 
@@ -16,7 +18,7 @@ main = do
         Right x -> do
           putTextLn $ "Solution=" <> show x <> " took " <> show n <> " iteration(s)."
           putTextLn $ "||Ax - b||_2 = " <> show (normDiff a b x)
-      config = ActiveSetConfiguration SolveSVD StartZero 1e-15 1000 LogOnError
+      config = ActiveSetConfiguration SolveLS StartZero 1e-15 1000 LogOnError
   let a = LA.matrix 3 [1, 1, 0, 0, 1, 1, 1, 0, 1]
       b = LA.vector [1, 2, -1]
   optimalNNLS logF config a b >>= showResult a b
@@ -35,15 +37,17 @@ main = do
       randomNonSingularM rows cols = do
         m <- LA.randn rows cols
         if LA.rank m < cols
-        then randomNonSingularM rows cols
-        else pure m
+          then randomNonSingularM rows cols
+          else pure m
       randomVector cols = LA.flatten <$> LA.randn cols 1
 
-  let randomNNLS :: Int -> Int -> IO (Either Text (LA.Vector Double), Int)
+  let randomNNLS :: Int -> Int -> IO (Either Text (LA.Vector Double))
       randomNNLS n m = do
-        a' <- randomNonSingularM n m
+        a' <- LA.randn n m
         b' <- randomVector n
-        optimalNNLS logF config a' b'
+        x <- LH.optimalNNLS a' b'
+--        showResult a' b' x
+        pure x
 
       timeIt :: Text -> IO a -> IO a
       timeIt t ma = do
@@ -54,28 +58,61 @@ main = do
         putTextLn $ t <> " took " <> toText @String (printf "%0.3f" diffTime <> "s")
         pure a'
 
-  let nnlsRows :: Int = 40
-      nnlsCols :: Int = 15
-      nnlsTrials :: Int = 2000
+      nnlsRows :: Int = 60
+      nnlsCols :: Int = 100
+      nnlsTrials :: Int = 1000
+
+
   randomNNLS 40 15 >>= putTextLn . show
 
-  res <- timeIt (show nnlsTrials <> " trials of " <> show nnlsRows <> " x " <> show nnlsCols <> " NNLS")
-    (sequence . fmap fst <$> traverse (const $ randomNNLS nnlsRows nnlsCols) [1..nnlsTrials])
-  case res of
-    Left msg -> putTextLn $ "Error in NNLS trials: " <> msg
-    Right _ -> putTextLn $ "NNLS trials all succeeded"
+  let processResults :: [(Either Text (LA.Vector Double), Int)] -> IO ()
+      processResults res = do
+        let (es, iters') = unzip res
+            e = sequence es
+        case e of
+          Left msg -> putTextLn $ "Error in NNLS trials: " <> msg
+          Right _ -> do
+            let avgIters = FL.fold (FL.premap realToFrac FL.mean) iters'
+            putTextLn $ "Trials all succeeded. <Iters>=" <> show avgIters
 
 
+  let processResultsLH :: [Either Text (LA.Vector Double)] -> IO ()
+      processResultsLH res = do
+        let e = sequence res
+        case e of
+          Left msg -> putTextLn $ "Error in NNLS trials: " <> msg
+          Right _ -> do
+            putTextLn $ "Trials all succeeded."
+
+
+  resNNLS <- timeIt (show nnlsTrials <> " trials of " <> show nnlsRows <> " x " <> show nnlsCols <> " NNLS")
+             $ traverse (const $ randomNNLS nnlsRows nnlsCols) [1..nnlsTrials]
+  processResultsLH resNNLS
 {-
-  randomLDP n m = do
-    g <- LA.rand n m
-    h <- LA.randomVector m
-    optimalLDP logF config (MatrixUpper g h) >> showResult a b
 
-  randomLSI n m j c = do
-    a <- LA.rand n m
-    b <- LA.randomVector m
-    g <- LA.rand c m
-    h <- LA.randomVector c
-    optimalLSI logF config (Original a) b (MatrixUpper g h)
+  let randomLDP :: Int -> Int -> IO (Either Text (LA.Vector Double), Int)
+      randomLDP n m = do
+        g <- randomNonSingularM n m
+        let h = g LA.#> LA.vector (replicate m 1)
+--        h <- randomVector n
+        optimalLDP logF config (MatrixUpper g h)
+
+  resLDP <- timeIt (show nnlsTrials <> " trials of " <> show nnlsRows <> " x " <> show nnlsCols <> " LDP")
+            $ traverse (const $ randomLDP nnlsRows nnlsCols) [1..nnlsTrials]
+
+  processResults resLDP
+
+  let randomLSI n m c = do
+        e <- randomNonSingularM n m
+        f <- randomVector n
+        g <- randomNonSingularM c m
+        let h = g LA.#> LA.vector (replicate m 1)
+        optimalLSI logF config (Original e) f (MatrixLower g h)
+
+
+  resLSI <- timeIt (show nnlsTrials <> " trials of " <> show nnlsRows <> " x " <> show nnlsCols <> " LSI")
+            $ traverse (const $ randomLSI nnlsRows nnlsCols nnlsRows) [1..nnlsTrials]
+
+  processResults resLSI
 -}
+  pure ()

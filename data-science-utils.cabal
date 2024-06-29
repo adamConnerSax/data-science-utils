@@ -40,7 +40,7 @@ library
       Numeric.MCMC.Diagnostics
       Numeric.ActiveSet
       Numeric.NNLS.Types
-      Numeric.NNLS.IncrementalQR
+      Numeric.NNLS.LH
   other-modules:
       Paths_data_science_utils
 
@@ -59,6 +59,7 @@ library
     , lens >= 5.0 && < 6
     , massiv >=1.0 && <1.1
     , mtl >= 2.3.0 && < 2.5
+    , nlopt-haskell >= 0.1.3 && < 0.2
     , relude >=1.0.0 && < 1.3
     , statistics >=0.15.0 && <0.17
     , text >=1.1.0.1 && <2.1
@@ -84,6 +85,7 @@ executable testActiveSet
   build-depends:
             base
           , hmatrix
+          , foldl
           , relude
           , vector
           , data-science-utils

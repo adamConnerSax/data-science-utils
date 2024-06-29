@@ -61,7 +61,7 @@ eps :: Double
 eps =  2.22044604925031e-16
 
 defaultActiveSetConfig :: ActiveSetConfiguration
-defaultActiveSetConfig = ActiveSetConfiguration SolveLS StartZero eps 1000 LogOnError
+defaultActiveSetConfig = ActiveSetConfiguration SolveLS StartZero 1e-12 1000 LogOnError
 
 data InequalityConstraints where
   SimpleBounds :: LA.Vector Double -> LA.Vector Double -> InequalityConstraints
@@ -120,7 +120,13 @@ data AS_State = ASFree | ASZero deriving (Show, Eq, Ord)
 
 data LH_WorkingSet = LH_WorkingSet (IM.IntMap AS_State) deriving stock (Show, Eq)
 
-data LH_NNLSWorkingData = LH_NNLSWorkingData { _lhX :: !(LA.Vector Double), _lhWS :: !LH_WorkingSet, _lhAtb :: Maybe (LA.Vector Double) }
+data LH_NNLSWorkingData =
+  LH_NNLSWorkingData
+  { _lhX :: !(LA.Vector Double)
+  , _lhWS :: !LH_WorkingSet
+  , _lhAtb :: Maybe (LA.Vector Double)
+  , _lhAtA :: Maybe (LA.Matrix Double)
+  }
 
 type ASMLH m = ASM LH_NNLSWorkingData m
 
@@ -135,7 +141,7 @@ data NNLS_LHContinue = LH_Setup
                      | LH_NewInfeasible (LA.Vector Double)
                      | LH_UnconstrainedSolve (Maybe (LA.Vector Double, Int))
 
-data EqualityConstrainedSolver = SolveLS | SolveSVD | SolveQR deriving stock (Show, Eq)
+data EqualityConstrainedSolver = SolveSq | SolveLS | SolveSVD | SolveQR deriving stock (Show, Eq)
 
 Lens.makeLenses ''AlgoData
 Lens.makeLenses ''LH_NNLSWorkingData
