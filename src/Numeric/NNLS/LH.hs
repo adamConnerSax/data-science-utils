@@ -3,9 +3,8 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE Strict #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <&>" #-}
 module Numeric.NNLS.LH
@@ -18,29 +17,107 @@ import Numeric.Optimization.NLOPT.NNLS as NNLS
 
 import Numeric.NNLS.Types
 import qualified Numeric.LinearAlgebra as LA
-import Numeric.LinearAlgebra ((|||), (===), (#>), (<#))
+import Numeric.LinearAlgebra ((#>))
 import qualified Data.Vector.Storable as VS
-import qualified Control.Foldl as FL
-import qualified Data.List as L
 
-import qualified Control.Monad.RWS.Strict as RWS
-import qualified Control.Monad.Except as RWS
-import qualified Control.Error as X
+data NNLSResult = Success (LA.Vector Double) Double | WrongDimensions | TooManyIterations | IncompatibleInequalities | ENotFullRank
+  deriving stock (Show, Eq)
+
+nnlsResult :: (LA.Vector Double, Double, Int) -> NNLSResult
+nnlsResult (x, norm, mode) = case mode of
+  1 -> Success x norm
+  2 -> WrongDimensions
+  3 -> TooManyIterations
+  4 -> IncompatibleInequalities
+  5 -> ENotFullRank
+
+nnlsResE :: NNLSResult -> Either Text (LA.Vector Double)
+nnlsResE = \case
+  Success x _ -> pure x
+  y -> Left $ show y
+
+-- hmatrix flattens to row major but we want flat column-major
+-- returns the vector pass well as the leading dimension and the rows and columns
+data NNLSMatrix = NNLSMatrix { vec :: !(LA.Vector Double), rows :: Int, columns :: Int, leadingDim :: Int}
+
+nnlsMatrix :: LA.Matrix Double -> NNLSMatrix
+nnlsMatrix m = let (r, c) = LA.size m
+               in NNLSMatrix (LA.flatten $ LA.tr m) r c r
 
 optimalNNLS :: LA.Matrix Double
             -> LA.Vector Double
-            -> IO (Either Text (LA.Vector Double))
+            -> IO NNLSResult
 optimalNNLS a b  = do
-  let checkE = nnlsCheckDims a b
-  either (pure . Left) (pure . Right) checkE
-  let (m, n) = LA.size a
-      aVec = LA.flatten $ LA.tr a
-  (res, mode) <- NNLS.nnls m n aVec b
-  pure $ case mode of
-    1 -> Right res
-    2 -> Left "Dimension problem in NNLS."
-    3 -> Left $ "Too many iterations. > 3*N = " <> show (3 * LA.rows a)
+  let nnlsM = nnlsMatrix a
+  r <- NNLS.nnls (rows nnlsM) (columns nnlsM) (vec nnlsM) b
+  pure $ nnlsResult r
 
+
+optimalLDP :: InequalityConstraints
+           -> IO NNLSResult
+optimalLDP ic' = do
+  let (IC g h) = convertInequalityConstraints ic'
+      nnlsG = nnlsMatrix g
+  r <- NNLS.ldp (rows nnlsG) (columns nnlsG) (vec nnlsG) h
+  pure $ nnlsResult r
+
+
+optimalLSI :: LA.Matrix Double
+           -> LA.Vector Double
+           -> InequalityConstraints
+           -> IO NNLSResult
+optimalLSI e f ic = do
+  let (IC g h) = convertInequalityConstraints ic
+      nnlsE = nnlsMatrix e
+      nnlsG = nnlsMatrix g
+  r <- lsi (columns nnlsE) (rows nnlsE) (rows nnlsG) (vec nnlsE) f (vec nnlsG) h
+  pure $ nnlsResult r
+
+data LSI_E = Original (LA.Matrix Double)
+           | Precomputed (LA.Matrix Double) (LA.Matrix Double) NNLSMatrix
+
+optimalLSI' :: LSI_E
+            -> LA.Vector Double
+            -> InequalityConstraints
+            -> IO NNLSResult
+optimalLSI' lsiE f ic = case lsiE of
+  Original e -> optimalLSI e f ic
+  pc@(Precomputed _ _ _) -> do
+    let (icz, zTox) = lsiICAndZtoX pc f ic
+    r <- optimalLDP icz
+    case r of
+      Success z zNorm -> pure $ Success (zTox z) zNorm
+      x -> pure x
+
+originalE :: LSI_E -> NNLSMatrix
+originalE (Original e) = nnlsMatrix e
+originalE (Precomputed _ _ e) = e
+
+precomputeFromE :: LA.Matrix Double -> LSI_E
+precomputeFromE e = do
+  let (m2, n) = LA.size e
+      (q, s, k) = LA.svd e
+      rInv = LA.diag $ VS.map (1 /) $ VS.slice 0 n s
+      kRinv = k LA.<> rInv
+      q1 = LA.subMatrix (0, 0) (m2, n) q
+  Precomputed kRinv q1 (nnlsMatrix e)
+
+lsiICAndZtoX :: LSI_E -> LA.Vector Double -> InequalityConstraints
+             -> (InequalityConstraints, LA.Vector Double -> LA.Vector Double)
+lsiICAndZtoX (Original e) f ic = lsiICAndZtoX (precomputeFromE e) f ic
+lsiICAndZtoX (Precomputed kRinv q1 _) f ic =
+  let (IC g h) = convertInequalityConstraints ic
+      f1 = LA.tr q1 #> f
+      gkrI = g LA.<> kRinv
+      hLDP = h - gkrI #> f1
+      newInequalityConstraints = MatrixLower gkrI hLDP
+      zTox z = kRinv #> (z + f1)
+  in (newInequalityConstraints, zTox)
+
+
+
+
+{-
 nnlsCheckDims :: LA.Matrix Double
               -> LA.Vector Double
               -> Either Text ()
@@ -48,28 +125,17 @@ nnlsCheckDims a b = do
   let (aRows, aCols) = LA.size a
       bLength = LA.size b
   checkPair "NNLS" (aRows, "rows(A)") (bLength, "length(b)")
-{-
-optimalLDP :: InequalityConstraints
-           -> Either Text (LA.Vector Double)
-optimalLDP ic' = do
-  let (IC g _) = convertInequalityConstraints ic'
-      nnlsSize = LA.rows g
-  runASM logF config (initialNNLSWorkingDataLH nnlsSize) $ ldpAlgo ic'
 
-ldpCheckDims :: Monad m => IC -> Either Text ()
+
+
+
+ldpCheckDims :: IC -> Either Text ()
 ldpCheckDims (IC g h) = do
   let gRows = LA.rows g
       hLength = LA.size h
   checkPair "LDP" (gRows, "rows(G)") (hLength, "length(h)")
-
-
-optimalLSI :: LSI_E
-           -> LA.Vector Double
-           -> InequalityConstraints
-           -> Either Text (LA.Vector Double)
-optimalLSI lsiE f ic = do
-  let nnlsSize = LA.rows (originalE lsiE)
-  runASM logF config (initialNNLSWorkingDataLH nnlsSize) $ lsiAlgo lsiE f ic
+-}
+{-
 
 lsiAlgo :: LSI_E
         -> LA.Vector Double
@@ -136,35 +202,5 @@ fullRank mT m = do
     $ "LSI: rank(" <> mT <> ")=" <> show rank <> " < " <> show fullRankN <> "=smaller dimension (" <> show minDir <>") of" <> mT <> "!"
 
 {-
-data LSI_E = Original (LA.Matrix Double)
-           | Precomputed (LA.Matrix Double) (LA.Matrix Double) (LA.Matrix Double)
 
-
-originalE :: LSI_E -> LA.Matrix Double
-originalE (Original e) = e
-originalE (Precomputed _ _ e) = e
-
-precomputeFromE :: Monad m => ActiveSetConfiguration -> LA.Matrix Double -> Either Text LSI_E
-precomputeFromE config e = do
-  let (m2, n) = LA.size e
-      (q, s, k) = LA.svd e
-      rank = LA.ranksv (cfgEpsilon config) (min m2 n) (VS.toList s)
-  when (rank < n) $ Left "precomputeFromE: given matrix E has rank < cols(E)"
-  let rInv = LA.diag $ VS.map (1 /) $ VS.slice 0 n s
-      kRinv = k LA.<> rInv
-      q1 = LA.subMatrix (0, 0) (m2, n) q
-  pure $ Precomputed kRinv q1 e
-
-lsiICAndZtoX :: Monad m
-             => LSI_E -> LA.Vector Double -> InequalityConstraints
-             -> Either Text (InequalityConstraints, LA.Vector Double -> LA.Vector Double)
-lsiICAndZtoX config (Original e) f ic = precomputeFromE' config e >>= \pc -> lsiICAndZtoX config pc f ic
-lsiICAndZtoX _ (Precomputed kRinv q1 _) f ic = do
-  let (IC g h) = convertInequalityConstraints ic
-      f1 = LA.tr q1 #> f
-      gkrI = g LA.<> kRinv
-      hLDP = h - gkrI #> f1
-      newInequalityConstraints = MatrixLower gkrI hLDP
-      zTox z = kRinv #> (z + f1)
-  pure (newInequalityConstraints, zTox)
 -}

@@ -36,7 +36,7 @@ main = do
   let randomNonSingularM :: Int -> Int -> IO (LA.Matrix Double)
       randomNonSingularM rows cols = do
         m <- LA.randn rows cols
-        if LA.rank m < cols
+        if LA.rank m < min rows cols
           then randomNonSingularM rows cols
           else pure m
       randomVector cols = LA.flatten <$> LA.randn cols 1
@@ -45,9 +45,7 @@ main = do
       randomNNLS n m = do
         a' <- LA.randn n m
         b' <- randomVector n
-        x <- LH.optimalNNLS a' b'
---        showResult a' b' x
-        pure x
+        LH.nnlsResE <$> LH.optimalNNLS a' b'
 
       timeIt :: Text -> IO a -> IO a
       timeIt t ma = do
@@ -84,35 +82,33 @@ main = do
           Right _ -> do
             putTextLn $ "Trials all succeeded."
 
-
+  putStrLn "Random NNLS..."
   resNNLS <- timeIt (show nnlsTrials <> " trials of " <> show nnlsRows <> " x " <> show nnlsCols <> " NNLS")
              $ traverse (const $ randomNNLS nnlsRows nnlsCols) [1..nnlsTrials]
   processResultsLH resNNLS
-{-
 
-  let randomLDP :: Int -> Int -> IO (Either Text (LA.Vector Double), Int)
+  let randomLDP :: Int -> Int -> IO (Either Text (LA.Vector Double))
       randomLDP n m = do
-        g <- randomNonSingularM n m
+        g <- LA.randn n m
         let h = g LA.#> LA.vector (replicate m 1)
---        h <- randomVector n
-        optimalLDP logF config (MatrixUpper g h)
+        LH.nnlsResE <$> LH.optimalLDP (MatrixUpper g h)
 
+  putStrLn "Random LDP..."
   resLDP <- timeIt (show nnlsTrials <> " trials of " <> show nnlsRows <> " x " <> show nnlsCols <> " LDP")
             $ traverse (const $ randomLDP nnlsRows nnlsCols) [1..nnlsTrials]
 
-  processResults resLDP
+  processResultsLH resLDP
 
   let randomLSI n m c = do
         e <- randomNonSingularM n m
         f <- randomVector n
-        g <- randomNonSingularM c m
+        g <- LA.randn c m
         let h = g LA.#> LA.vector (replicate m 1)
-        optimalLSI logF config (Original e) f (MatrixLower g h)
+        LH.nnlsResE <$> LH.optimalLSI' (LH.Original e) f (MatrixUpper g h)
 
-
+  putStrLn "Random LSI..."
   resLSI <- timeIt (show nnlsTrials <> " trials of " <> show nnlsRows <> " x " <> show nnlsCols <> " LSI")
             $ traverse (const $ randomLSI nnlsRows nnlsCols nnlsRows) [1..nnlsTrials]
 
-  processResults resLSI
--}
+  processResultsLH resLSI
   pure ()
