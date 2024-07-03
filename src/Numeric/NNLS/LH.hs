@@ -10,6 +10,7 @@
 module Numeric.NNLS.LH
   (
     module Numeric.NNLS.LH
+  , module Numeric.NNLS.Types
   ) where
 
 

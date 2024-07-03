@@ -16,7 +16,6 @@ module Numeric.ActiveSet
 
 
 import Numeric.NNLS.Types
-import Numeric.NNLS.IncrementalQR as IQR
 import qualified Numeric.LinearAlgebra as LA
 import Numeric.LinearAlgebra ((|||), (===), (#>), (<#))
 import qualified Data.List as L
